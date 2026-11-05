@@ -101,14 +101,14 @@ try {
       owner,
     )
   ).body;
-  for (let weekday = 1; weekday <= 6; weekday++)
+  for (let weekday = 0; weekday <= 6; weekday++)
     await request(
       "/admin/schedules",
       {
         barber_user_id: barber.id,
         weekday,
-        start_minute: 600,
-        end_minute: 1200,
+        start_minute: 0,
+        end_minute: 1440,
       },
       owner,
     );
@@ -232,7 +232,9 @@ try {
   await fill('input[name="password"]', password);
   await click("Entrar");
   await waitText("Painel de Gestão — NA Barbearia");
-  assert.equal(await evaluate("location.pathname"), "/gestao/financeiro");
+  assert.equal(await evaluate("location.pathname"), "/gestao/agenda-geral");
+  await waitText("Data da agenda");
+  await click("Financeiro");
   await waitText("Resumo por forma de pagamento prevista");
   assert.equal(
     await evaluate("document.documentElement.scrollWidth <= innerWidth"),
@@ -283,6 +285,14 @@ try {
         )
       ).body,
     );
+  const operationalStart = new Date();
+  operationalStart.setSeconds(0, 0);
+  operationalStart.setTime(operationalStart.getTime() + 5 * 60_000);
+  await request(
+    "/admin/agenda/bulk",
+    { action: "move", changes: [{ id: created[0].id, starts_at: operationalStart.toISOString() }] },
+    owner,
+  );
   await request(
     `/appointments/${created[0].id}/complete`,
     { notes: "" },
@@ -350,7 +360,7 @@ try {
   await rowAction("Barbeiro Atualizado", "Escala");
   await waitText("Dia da semana");
   await selectOption("Dia da semana", "Quarta");
-  await click("Salvar");
+  await click("Adicionar escala");
   await waitText("Alterações salvas.");
 
   console.log(
@@ -492,6 +502,14 @@ try {
   );
   console.log(
     "OK: cliente não acessa gestão; repasse duplicado é rejeitado; conflito reverte todo o lote.",
+  );
+  const extraOperationalStart = new Date();
+  extraOperationalStart.setSeconds(0, 0);
+  extraOperationalStart.setTime(extraOperationalStart.getTime() + 5 * 60_000);
+  await request(
+    "/admin/agenda/bulk",
+    { action: "move", changes: [{ id: extra[0].id, starts_at: extraOperationalStart.toISOString() }] },
+    owner,
   );
   await request(`/appointments/${extra[0].id}/complete`, { notes: "" }, owner);
   const key = { "Idempotency-Key": "retry-payout-owner-test-key" };

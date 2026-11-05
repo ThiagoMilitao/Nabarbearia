@@ -21,10 +21,14 @@ export default function BarberDashboard({ session: initialSession } = {}) {
   const [date, setDate] = useState(() => shopDate())
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [stale, setStale] = useState(false)
   const [startedIds, setStartedIds] = useState(() => new Set())
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  const [editingBlock, setEditingBlock] = useState(null)
   const requestId = useRef(0)
+  const hasLoadedAgenda = useRef(false)
   const actionPending = useRef(false)
   const allowed = session?.user.roles.includes("barber")
 
@@ -37,30 +41,39 @@ export default function BarberDashboard({ session: initialSession } = {}) {
     return () => { active = false }
   }, [initialSession])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ quiet = false } = {}) => {
     if (!allowed) return
     const currentRequest = ++requestId.current
-    setLoading(true)
+    if (quiet) setRefreshing(true)
+    else setLoading(true)
     setError("")
     try {
       const from = new Date(`${date}T00:00:00-03:00`)
       const to = new Date(from.getTime() + 24 * 60 * 60 * 1000)
       const range = { from: from.toISOString(), to: to.toISOString() }
       const [result, pauses] = await Promise.all([api.listAppointments(range), api.listOwnBlocks(range)])
-      if (currentRequest === requestId.current) { setAppointments(result); setBlocks(pauses) }
+      if (currentRequest === requestId.current) { setAppointments(result); setBlocks(pauses); setStale(false); hasLoadedAgenda.current = true }
     } catch (failure) {
       if (currentRequest === requestId.current) {
-        setAppointments([]); setBlocks([])
+        if (!hasLoadedAgenda.current) { setAppointments([]); setBlocks([]) }
+        else setStale(true)
         setError(failure instanceof ApiError ? failure.message : "Não foi possível carregar a agenda.")
       }
     } finally {
-      if (currentRequest === requestId.current) setLoading(false)
+      if (currentRequest === requestId.current) { setLoading(false); setRefreshing(false) }
     }
   }, [allowed, session?.user.id, date])
 
   useEffect(() => {
     void load()
     return () => { requestId.current += 1 }
+  }, [load])
+
+  useEffect(() => {
+    const refreshIfVisible = () => { if (document.visibilityState === "visible") void load({ quiet: true }) }
+    const timer = window.setInterval(refreshIfVisible, 45_000)
+    document.addEventListener("visibilitychange", refreshIfVisible)
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshIfVisible) }
   }, [load])
 
   async function updateAppointment(appointment, action) {
@@ -97,6 +110,17 @@ export default function BarberDashboard({ session: initialSession } = {}) {
     try { await action(); setNotice(message); await load(); return true }
     catch (failure) { setError(failure instanceof Error ? failure.message : "Não foi possível salvar. Tente novamente."); return false }
     finally { actionPending.current = false; setBusy(false) }
+  }
+
+  async function markPaid(appointment) {
+    return runAction(
+      () => api.updateAppointmentDetails(appointment.id, { payment_status: "paid", payment_method: appointment.paymentMethod, client_phone: appointment.clientPhone, client_note: appointment.clientNote }),
+      "Pagamento marcado como recebido.",
+    )
+  }
+
+  async function removeBlock(block) {
+    return runAction(() => api.deleteOwnBlock(block.id), "Pausa removida da agenda.")
   }
 
   async function logout() {
@@ -143,18 +167,20 @@ export default function BarberDashboard({ session: initialSession } = {}) {
                 return <Button key={value} type="button" disabled={busy} aria-pressed={date === value} onClick={() => setDate(value)} variant={date === value ? "default" : "outline"} className={`min-h-11 shrink-0 snap-start rounded-xl px-3 text-xs! font-semibold! ${date === value ? "" : "bg-white text-gray-600"}`}>{label} {day.getUTCDate()}</Button>
               })}
             </div>
-            <Button type="button" variant="ghost" size="icon" disabled={loading || busy} onClick={load} aria-label="Atualizar agenda" className="size-11 rounded-xl text-muted-foreground"><RefreshCw aria-hidden="true" className={`size-4 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`} /></Button>
+            <Button type="button" variant="ghost" size="icon" disabled={loading || refreshing || busy} onClick={() => void load()} aria-label="Atualizar agenda" className="size-11 rounded-xl text-muted-foreground"><RefreshCw aria-hidden="true" className={`size-4 ${loading || refreshing ? "animate-spin motion-reduce:animate-none" : ""}`} /></Button>
           </div>
-          <BarberDayTools date={date} barberId={session.user.id} busy={busy || loading} onRun={runAction} />
-          {blocks.length > 0 && <section aria-label="Pausas bloqueadas" className="flex flex-wrap gap-2">{blocks.map((block) => <span key={block.id} className="rounded-lg bg-white px-2 py-1 text-[11px] text-gray-500">{block.reason || "Pausa"} · {scheduleTime(block.starts_at)}–{scheduleTime(block.ends_at)}</span>)}</section>}
+          <BarberDayTools date={date} barberId={session.user.id} busy={busy || loading} onRun={runAction} editingBlock={editingBlock} onClearEdit={() => setEditingBlock(null)} />
+          {blocks.length > 0 && <section aria-label="Pausas bloqueadas" className="flex flex-wrap gap-2">{blocks.map((block) => <span key={block.id} className="flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] text-gray-500"><span>{block.reason || "Pausa"} · {scheduleTime(block.starts_at)}–{scheduleTime(block.ends_at)}</span><Button type="button" variant="ghost" disabled={busy || loading} onClick={() => setEditingBlock(block)} className="min-h-7 rounded-md px-1.5 text-[11px]! text-primary hover:bg-blue-50">Editar</Button><Button type="button" variant="ghost" size="icon" disabled={busy || loading} onClick={() => void removeBlock(block)} aria-label={`Remover ${block.reason || "pausa"}`} className="size-6 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600">×</Button></span>)}</section>}
         </>}
         {error && <Alert variant="destructive" className="rounded-xl border-destructive/20 bg-white p-3"><AlertDescription className="text-xs">{error}</AlertDescription></Alert>}
+        {stale && <p role="status" className="rounded-xl bg-amber-50 p-2.5 text-xs text-amber-800">A agenda pode estar desatualizada. <button type="button" className="font-semibold underline" onClick={() => void load()}>Atualizar agora</button></p>}
         {notice && <p role="status" className="rounded-xl bg-emerald-50 p-2.5 text-xs text-emerald-700">{notice}</p>}
-        {error && appointments.length === 0 && activeTab !== "perfil" && <Button type="button" variant="outline" disabled={busy || loading} onClick={load} className="min-h-11 rounded-xl text-xs!">Tentar carregar novamente</Button>}
+        {error && appointments.length === 0 && activeTab !== "perfil" && <Button type="button" variant="outline" disabled={busy || loading} onClick={() => void load()} className="min-h-11 rounded-xl text-xs!">Tentar carregar novamente</Button>}
         {activeTab === "agenda" && <BarberSchedule appointments={schedule.items} date={date} barberName={name} startedIds={startedIds}
           loading={loading} loadFailed={Boolean(error && appointments.length === 0)}
           onNoShow={(appointment) => updateAppointment(appointment, "no-show")}
           onSaveDetails={(appointment, details) => runAction(() => api.updateAppointmentDetails(appointment.id, details), "Detalhes atualizados.")}
+          onMarkPaid={markPaid}
           busy={busy || loading} onStart={(appointment) => updateAppointment(appointment, "start")}
           onComplete={(appointment) => updateAppointment(appointment, "complete")}
         />}
@@ -167,7 +193,7 @@ export default function BarberDashboard({ session: initialSession } = {}) {
             <Card className="gap-1 rounded-2xl bg-white p-4 shadow-sm ring-0"><h2 className="text-xs text-muted-foreground">Atendimentos concluídos</h2><p className="text-lg font-bold text-primary">{loading || error ? "—" : `${schedule.completed}/${schedule.total}`}</p></Card>
             <Card className="col-span-2 gap-2 rounded-2xl bg-white p-4 shadow-sm ring-0"><h2 className="text-xs text-muted-foreground">Sua comissão</h2><p className="text-xl font-bold text-primary">{loading || error ? "—" : money(schedule.commissionCents)}</p>{!loading && !error && schedule.commissionPending > 0 && <p className="text-xs text-amber-700">{schedule.commissionPending} sem regra de comissão. Solicite a configuração ao proprietário.</p>}<p className="text-[11px] leading-relaxed text-muted-foreground">Valores dos atendimentos concluídos nesta data. A comissão considera as regras cadastradas e não representa pagamento recebido.</p></Card>
           </div>
-          <Button type="button" variant="outline" disabled={busy || loading} onClick={load} className="min-h-11 rounded-xl text-xs!"><RefreshCw className="size-4" />Atualizar ganhos</Button>
+          <Button type="button" variant="outline" disabled={busy || loading} onClick={() => void load()} className="min-h-11 rounded-xl text-xs!"><RefreshCw className="size-4" />Atualizar ganhos</Button>
         </section>}
         {activeTab === "perfil" && <section aria-labelledby="barber-profile" className="space-y-4">
           <h1 id="barber-profile" className="text-lg font-semibold">Meu Perfil</h1>

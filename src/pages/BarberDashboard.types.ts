@@ -14,6 +14,7 @@ export interface BarberScheduleProps {
   busy: boolean
   onStart: (appointment: Appointment) => void
   onNoShow: (appointment: Appointment) => void
-  onSaveDetails: (appointment: Appointment, details: { client_phone?: string; payment_method?: string; client_note?: string }) => Promise<boolean>
+  onSaveDetails: (appointment: Appointment, details: { client_phone?: string; payment_method?: string; client_note?: string; payment_status?: 'pending' | 'paid' }) => Promise<boolean>
+  onMarkPaid: (appointment: Appointment) => Promise<boolean>
   onComplete: (appointment: Appointment) => void
 }

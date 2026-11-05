@@ -24,11 +24,12 @@ use crate::{
     error::{ApiResult, AppError},
     models::{
         AdminAppointmentRequest, AppointmentRequest, AppointmentResponse, AppointmentStatus,
-        AuthContext, AuthResponse, AuthUser, AvailabilityQuery, AvailableSlot, BarberRequest,
-        BarberResponse, BlockRequest, CancelRequest, CommissionRuleRequest, CommissionRuleType,
-        CompleteRequest, ConsentRequest, DateRangeQuery, LoginRequest, MessageResponse,
-        PublicBarberResponse, RatingRequest, RegisterRequest, RescheduleRequest, RevenueReport,
-        Role, ScheduleRequest, ServiceRequest, ServiceResponse, SetupOwnerRequest,
+        AuthContext, AuthResponse, AuthUser, AvailabilityQuery, AvailableSlot,
+        BarberClientResponse, BarberRequest, BarberResponse, BlockRequest, CancelRequest,
+        ClientSearchQuery, CommissionRuleRequest, CommissionRuleType, CompleteRequest,
+        ConsentRequest, DateRangeQuery, LoginRequest, MessageResponse, PublicBarberResponse,
+        RatingRequest, RegisterRequest, RescheduleRequest, RevenueReport, Role, ScheduleQuery,
+        ScheduleRequest, ScheduleResponse, ServiceRequest, ServiceResponse, SetupOwnerRequest,
         SetupStatusResponse,
     },
     security::{
@@ -115,9 +116,21 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/barber/blocks",
             get(list_own_blocks).post(create_block),
         )
+        .route(
+            "/api/v1/barber/blocks/{id}",
+            patch(update_block).delete(delete_block),
+        )
+        .route("/api/v1/barber/clients", get(list_barber_clients))
         .route("/api/v1/admin/services/{id}", put(update_service))
         .route("/api/v1/admin/barbers", post(create_barber))
-        .route("/api/v1/admin/schedules", post(create_schedule))
+        .route(
+            "/api/v1/admin/schedules",
+            get(list_admin_schedules).post(create_schedule),
+        )
+        .route(
+            "/api/v1/admin/schedules/{id}",
+            patch(update_schedule).delete(delete_schedule),
+        )
         .route("/api/v1/admin/blocks", post(create_block))
         .route(
             "/api/v1/admin/commission-rules",
@@ -1109,6 +1122,143 @@ async fn create_schedule(
     ))
 }
 
+async fn list_admin_schedules(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ScheduleQuery>,
+) -> ApiResult<Json<Vec<ScheduleResponse>>> {
+    let context = authenticate(&state, &headers).await?;
+    require_role(&context, Role::Owner)?;
+    let barber_id = query.barber_user_id.as_deref().map(valid_id).transpose()?;
+    let business_id = context.user.business_id;
+    let schedules = state
+        .db
+        .with_conn(move |connection| -> Result<_, AppError> {
+            let mut statement = connection.prepare(
+                "SELECT id, barber_user_id, weekday, start_minute, end_minute, active
+             FROM weekly_schedules
+             WHERE business_id=?1 AND active=1 AND (?2 IS NULL OR barber_user_id=?2)
+             ORDER BY barber_user_id, weekday, start_minute",
+            )?;
+            let rows = statement
+                .query_map(params![business_id, barber_id], |row| {
+                    Ok(ScheduleResponse {
+                        id: row.get(0)?,
+                        barber_user_id: row.get(1)?,
+                        weekday: row.get(2)?,
+                        start_minute: row.get(3)?,
+                        end_minute: row.get(4)?,
+                        active: row.get::<_, i64>(5)? != 0,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    Ok(Json(schedules))
+}
+
+async fn update_schedule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(request): Json<ScheduleRequest>,
+) -> ApiResult<Json<MessageResponse>> {
+    let context = authenticate(&state, &headers).await?;
+    require_mutation(&state, &headers, &context)?;
+    require_role(&context, Role::Owner)?;
+    let schedule_id = valid_id(&id)?;
+    let barber_id = valid_id(&request.barber_user_id)?;
+    if !(0..=6).contains(&request.weekday)
+        || !(0..=1439).contains(&request.start_minute)
+        || !(1..=1440).contains(&request.end_minute)
+        || request.end_minute <= request.start_minute
+    {
+        return Err(AppError::bad_request(
+            "INVALID_SCHEDULE",
+            "Schedule interval is invalid",
+        ));
+    }
+    let business_id = context.user.business_id.clone();
+    let actor_id = context.user.id.clone();
+    state.db.with_conn(move |connection| -> Result<_, AppError> {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_active_barber(&transaction, &business_id, &barber_id)?;
+        let exists: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM weekly_schedules WHERE business_id=?1 AND id=?2 AND active=1)",
+            params![business_id, schedule_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            return Err(AppError::not_found("SCHEDULE_NOT_FOUND", "Escala não encontrada"));
+        }
+        let overlap: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM weekly_schedules
+             WHERE business_id=?1 AND barber_user_id=?2 AND weekday=?3 AND active=1 AND id<>?4
+               AND start_minute < ?5 AND end_minute > ?6)",
+            params![business_id, barber_id, request.weekday, schedule_id, request.end_minute, request.start_minute],
+            |row| row.get(0),
+        )?;
+        if overlap != 0 {
+            return Err(AppError::conflict("SCHEDULE_OVERLAP", "Schedule overlaps an existing interval"));
+        }
+        transaction.execute(
+            "UPDATE weekly_schedules SET barber_user_id=?1, weekday=?2, start_minute=?3, end_minute=?4 WHERE business_id=?5 AND id=?6 AND active=1",
+            params![barber_id, request.weekday, request.start_minute, request.end_minute, business_id, schedule_id],
+        )?;
+        insert_audit(&transaction, &business_id, Some(&actor_id), "schedule.updated", "weekly_schedule", &schedule_id, "{}")?;
+        transaction.commit()?;
+        Ok(())
+    }).await?;
+    Ok(Json(MessageResponse {
+        message: "Schedule updated",
+    }))
+}
+
+async fn delete_schedule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<MessageResponse>> {
+    let context = authenticate(&state, &headers).await?;
+    require_mutation(&state, &headers, &context)?;
+    require_role(&context, Role::Owner)?;
+    let schedule_id = valid_id(&id)?;
+    let business_id = context.user.business_id.clone();
+    let actor_id = context.user.id.clone();
+    state
+        .db
+        .with_conn(move |connection| -> Result<_, AppError> {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let changed = transaction.execute(
+                "UPDATE weekly_schedules SET active=0 WHERE business_id=?1 AND id=?2 AND active=1",
+                params![business_id, schedule_id],
+            )?;
+            if changed == 0 {
+                return Err(AppError::not_found(
+                    "SCHEDULE_NOT_FOUND",
+                    "Escala não encontrada",
+                ));
+            }
+            insert_audit(
+                &transaction,
+                &business_id,
+                Some(&actor_id),
+                "schedule.deleted",
+                "weekly_schedule",
+                &schedule_id,
+                "{}",
+            )?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .await?;
+    Ok(Json(MessageResponse {
+        message: "Schedule deleted",
+    }))
+}
+
 async fn list_own_blocks(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1206,6 +1356,157 @@ async fn create_block(
             message: "Block created",
         }),
     ))
+}
+
+async fn update_block(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(request): Json<BlockRequest>,
+) -> ApiResult<Json<MessageResponse>> {
+    let context = authenticate(&state, &headers).await?;
+    require_mutation(&state, &headers, &context)?;
+    let block_id = valid_id(&id)?;
+    let barber_id = valid_id(&request.barber_user_id)?;
+    if !is_owner(&context)
+        && !(context.user.roles.contains(&Role::Barber) && barber_id == context.user.id)
+    {
+        return Err(AppError::forbidden());
+    }
+    let starts_at = parse_input_utc(&request.starts_at_utc)?;
+    let ends_at = parse_input_utc(&request.ends_at_utc)?;
+    if starts_at <= Utc::now()
+        || ends_at <= starts_at
+        || ends_at - starts_at > ChronoDuration::days(366)
+    {
+        return Err(AppError::bad_request(
+            "INVALID_BLOCK",
+            "Block interval is invalid",
+        ));
+    }
+    let reason = optional_text(
+        request.reason.as_deref(),
+        500,
+        "INVALID_BLOCK",
+        "Block reason is invalid",
+    )?;
+    let business_id = context.user.business_id.clone();
+    let actor_id = context.user.id.clone();
+    let starts_text = utc_text(starts_at);
+    let ends_text = utc_text(ends_at);
+    state.db.with_conn(move |connection| -> Result<_, AppError> {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let owns_block: Option<String> = transaction.query_row(
+            "SELECT barber_user_id FROM availability_blocks WHERE business_id=?1 AND id=?2 AND active=1",
+            params![business_id, block_id],
+            |row| row.get(0),
+        ).optional()?;
+        let current_barber = owns_block.ok_or_else(|| AppError::not_found("BLOCK_NOT_FOUND", "Pausa não encontrada"))?;
+        if current_barber != barber_id {
+            return Err(AppError::bad_request("INVALID_BLOCK", "A pausa pertence a outro barbeiro"));
+        }
+        let overlap: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM availability_blocks
+             WHERE business_id=?1 AND barber_user_id=?2 AND active=1 AND id<>?3
+               AND starts_at_utc < ?4 AND ends_at_utc > ?5)",
+            params![business_id, barber_id, block_id, ends_text, starts_text],
+            |row| row.get(0),
+        )?;
+        if overlap != 0 {
+            return Err(AppError::conflict("BLOCK_OVERLAP", "Block overlaps an existing block"));
+        }
+        let booked: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM appointments WHERE business_id=?1 AND barber_user_id=?2
+             AND status='confirmed' AND starts_at_utc < ?3 AND ends_at_utc > ?4)",
+            params![business_id, barber_id, ends_text, starts_text],
+            |row| row.get(0),
+        )?;
+        if booked != 0 {
+            return Err(AppError::conflict("APPOINTMENT_OVERLAP", "A pausa coincide com um atendimento confirmado."));
+        }
+        transaction.execute(
+            "UPDATE availability_blocks SET starts_at_utc=?1, ends_at_utc=?2, reason=?3 WHERE business_id=?4 AND id=?5 AND active=1",
+            params![starts_text, ends_text, reason, business_id, block_id],
+        )?;
+        insert_audit(&transaction, &business_id, Some(&actor_id), "availability_block.updated", "availability_block", &block_id, "{}")?;
+        transaction.commit()?;
+        Ok(())
+    }).await?;
+    Ok(Json(MessageResponse {
+        message: "Block updated",
+    }))
+}
+
+async fn delete_block(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<MessageResponse>> {
+    let context = authenticate(&state, &headers).await?;
+    require_mutation(&state, &headers, &context)?;
+    let block_id = valid_id(&id)?;
+    let business_id = context.user.business_id.clone();
+    let actor_id = context.user.id.clone();
+    let owner = is_owner(&context);
+    let barber = context.user.roles.contains(&Role::Barber);
+    state.db.with_conn(move |connection| -> Result<_, AppError> {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let block_barber: Option<String> = transaction.query_row(
+            "SELECT barber_user_id FROM availability_blocks WHERE business_id=?1 AND id=?2 AND active=1",
+            params![business_id, block_id],
+            |row| row.get(0),
+        ).optional()?;
+        let block_barber = block_barber.ok_or_else(|| AppError::not_found("BLOCK_NOT_FOUND", "Pausa não encontrada"))?;
+        if !(owner || (barber && block_barber == actor_id)) {
+            return Err(AppError::forbidden());
+        }
+        transaction.execute(
+            "UPDATE availability_blocks SET active=0 WHERE business_id=?1 AND id=?2 AND active=1",
+            params![business_id, block_id],
+        )?;
+        insert_audit(&transaction, &business_id, Some(&actor_id), "availability_block.deleted", "availability_block", &block_id, "{}")?;
+        transaction.commit()?;
+        Ok(())
+    }).await?;
+    Ok(Json(MessageResponse {
+        message: "Block deleted",
+    }))
+}
+
+async fn list_barber_clients(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ClientSearchQuery>,
+) -> ApiResult<Json<Vec<BarberClientResponse>>> {
+    let context = authenticate(&state, &headers).await?;
+    require_role(&context, Role::Barber)?;
+    let search = query.q.unwrap_or_default().trim().to_string();
+    if search.len() < 2 {
+        return Ok(Json(Vec::new()));
+    }
+    let business_id = context.user.business_id;
+    let pattern = format!("%{search}%");
+    let clients = state.db.with_conn(move |connection| -> Result<_, AppError> {
+        let mut statement = connection.prepare(
+            "SELECT u.id, u.display_name,
+                (SELECT a.client_phone FROM appointments a
+                 WHERE a.business_id=u.business_id AND a.client_user_id=u.id AND a.client_phone IS NOT NULL AND a.client_phone <> ''
+                 ORDER BY a.starts_at_utc DESC LIMIT 1)
+             FROM users u JOIN user_roles r ON r.business_id=u.business_id AND r.user_id=u.id
+             WHERE u.business_id=?1 AND u.active=1 AND r.role='client'
+               AND (u.display_name LIKE ?2 COLLATE NOCASE OR EXISTS(
+                   SELECT 1 FROM appointments a2 WHERE a2.business_id=u.business_id AND a2.client_user_id=u.id
+                     AND a2.client_phone LIKE ?2))
+             ORDER BY u.display_name COLLATE NOCASE LIMIT 20",
+        )?;
+        let rows = statement.query_map(params![business_id, pattern], |row| Ok(BarberClientResponse {
+            id: row.get(0)?,
+            display_name: row.get(1)?,
+            phone: row.get(2)?,
+        }))?.collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }).await?;
+    Ok(Json(clients))
 }
 
 async fn create_commission_rule(
@@ -1449,6 +1750,11 @@ async fn public_availability(
 }
 
 fn local_time(timezone: Tz, date: NaiveDate, minute: i64) -> Result<DateTime<Tz>, AppError> {
+    let (date, minute) = if minute == 1440 {
+        (date.succ_opt().ok_or(AppError::Internal)?, 0)
+    } else {
+        (date, minute)
+    };
     let hour = u32::try_from(minute / 60).map_err(|_| AppError::Internal)?;
     let minute_part = u32::try_from(minute % 60).map_err(|_| AppError::Internal)?;
     let local = date
@@ -1552,7 +1858,7 @@ async fn create_appointment(
                 barber_display_name: None,
                 service_name: None,
                 rating: None,
-                client_phone: None, payment_method: None, client_note: None, execution_started: false,
+                client_phone: None, payment_method: None, payment_status: "pending".to_string(), paid_at_utc: None, client_note: None, execution_started: false,
                 commission_cents: None,
             };
             let response_json = serde_json::to_string(&response).map_err(|_| AppError::Internal)?;
@@ -1627,16 +1933,16 @@ async fn create_admin_appointment(
     }
     let barber_id = valid_id(&request.barber_user_id)?;
     if !is_owner(&context)
-        && !(walk_in && context.user.roles.contains(&Role::Barber) && barber_id == context.user.id)
+        && !(context.user.roles.contains(&Role::Barber) && barber_id == context.user.id)
     {
         return Err(AppError::forbidden());
     }
     let service_id = valid_id(&request.service_id)?;
     let starts_at = parse_input_utc(&request.starts_at)?;
-    if starts_at <= Utc::now() {
+    if starts_at < Utc::now() - ChronoDuration::minutes(15) {
         return Err(AppError::bad_request(
             "INVALID_APPOINTMENT",
-            "Appointment must be in the future",
+            "O encaixe não pode ser lançado com mais de 15 minutos de atraso",
         ));
     }
     let request_hash =
@@ -1735,7 +2041,7 @@ async fn create_admin_appointment(
                 barber_display_name: None,
                 service_name: None,
                 rating: None,
-                client_phone: None, payment_method: None, client_note: None, execution_started: false,
+                client_phone: None, payment_method: None, payment_status: "pending".to_string(), paid_at_utc: None, client_note: None, execution_started: false,
                 commission_cents: None,
             };
             let response_json = serde_json::to_string(&response).map_err(|_| AppError::Internal)?;
@@ -1791,7 +2097,7 @@ async fn list_appointments(
                 "SELECT a.id, a.business_id, a.client_user_id, a.barber_user_id, a.service_id, a.starts_at_utc, a.ends_at_utc, a.status, a.price_cents, a.duration_minutes,
                         client.display_name, barber.display_name, service.name,
                     (SELECT r.score FROM ratings r WHERE r.business_id = a.business_id AND r.appointment_id = a.id),
-                    a.client_phone, a.payment_method, a.client_note,
+                    a.client_phone, a.payment_method, a.payment_status, a.paid_at_utc, a.client_note,
                     EXISTS(SELECT 1 FROM service_executions e WHERE e.business_id=a.business_id AND e.appointment_id=a.id),
                     (SELECT c.amount_cents FROM commission_snapshots c WHERE c.business_id=a.business_id AND c.appointment_id=a.id AND c.status='posted')
                  FROM appointments a
@@ -1981,6 +2287,7 @@ async fn update_appointment_details(
         "Observação muito longa",
     )?;
     let payment = request.payment_method;
+    let payment_status = request.payment_status;
     if payment
         .as_deref()
         .is_some_and(|p| !["Pix", "Cartão", "Presencial"].contains(&p))
@@ -1990,18 +2297,58 @@ async fn update_appointment_details(
             "Forma de pagamento inválida",
         ));
     }
+    if payment_status
+        .as_deref()
+        .is_some_and(|status| !["pending", "paid"].contains(&status))
+    {
+        return Err(AppError::bad_request(
+            "INVALID_PAYMENT_STATUS",
+            "Status de pagamento inválido",
+        ));
+    }
     let business_id = context.user.business_id.clone();
     let actor_id = context.user.id.clone();
     let owner = is_owner(&context);
     let barber = context.user.roles.contains(&Role::Barber);
-    state.db.with_conn(move |connection| -> Result<_, AppError> {
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let appointment = get_appointment(&tx, &business_id, &appointment_id)?;
-        if !(owner || (barber && appointment.barber_user_id == actor_id)) { return Err(AppError::forbidden()); }
-        tx.execute("UPDATE appointments SET client_phone=?1, payment_method=?2, client_note=?3, updated_at_utc=?4, version=version+1 WHERE business_id=?5 AND id=?6", params![phone,payment,note,utc_text(Utc::now()),business_id,appointment_id])?;
-        insert_audit(&tx,&business_id,Some(&actor_id),"appointment.details_updated","appointment",&appointment_id,"{}")?;
-        tx.commit()?; Ok(())
-    }).await?;
+    state
+        .db
+        .with_conn(move |connection| -> Result<_, AppError> {
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let appointment = get_appointment(&tx, &business_id, &appointment_id)?;
+            if !(owner || (barber && appointment.barber_user_id == actor_id)) {
+                return Err(AppError::forbidden());
+            }
+            let now = utc_text(Utc::now());
+            tx.execute(
+                "UPDATE appointments SET client_phone=?1, payment_method=?2, client_note=?3,
+                    payment_status=COALESCE(?4, payment_status),
+                    paid_at_utc=CASE WHEN ?4='paid' THEN COALESCE(paid_at_utc, ?5)
+                                     WHEN ?4='pending' THEN NULL ELSE paid_at_utc END,
+                    updated_at_utc=?5, version=version+1
+                    WHERE business_id=?6 AND id=?7",
+                params![
+                    phone,
+                    payment,
+                    note,
+                    payment_status,
+                    now,
+                    business_id,
+                    appointment_id
+                ],
+            )?;
+            insert_audit(
+                &tx,
+                &business_id,
+                Some(&actor_id),
+                "appointment.details_updated",
+                "appointment",
+                &appointment_id,
+                "{}",
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
     Ok(Json(MessageResponse {
         message: "Detalhes atualizados",
     }))
@@ -2034,6 +2381,7 @@ async fn start_execution(
                     "Only a confirmed appointment can start",
                 ));
             }
+            ensure_appointment_action_window(appointment.starts_at, "start")?;
             let created = transaction.execute(
                 "INSERT INTO service_executions(business_id, appointment_id, started_at_utc, notes)
                  VALUES (?1, ?2, ?3, '') ON CONFLICT(business_id, appointment_id) DO NOTHING",
@@ -2079,9 +2427,11 @@ fn appointment_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Appointment
         rating: row.get(13)?,
         client_phone: row.get(14)?,
         payment_method: row.get(15)?,
-        client_note: row.get(16)?,
-        execution_started: row.get(17)?,
-        commission_cents: row.get(18)?,
+        payment_status: row.get(16)?,
+        paid_at_utc: row.get(17)?,
+        client_note: row.get(18)?,
+        execution_started: row.get(19)?,
+        commission_cents: row.get(20)?,
     })
 }
 
@@ -2095,7 +2445,7 @@ fn get_appointment(
             "SELECT a.id, a.business_id, a.client_user_id, a.barber_user_id, a.service_id, a.starts_at_utc, a.ends_at_utc, a.status, a.price_cents, a.duration_minutes,
                     client.display_name, barber.display_name, service.name,
                     (SELECT r.score FROM ratings r WHERE r.business_id = a.business_id AND r.appointment_id = a.id),
-                    a.client_phone, a.payment_method, a.client_note,
+                    a.client_phone, a.payment_method, a.payment_status, a.paid_at_utc, a.client_note,
                     EXISTS(SELECT 1 FROM service_executions e WHERE e.business_id=a.business_id AND e.appointment_id=a.id),
                     (SELECT c.amount_cents FROM commission_snapshots c WHERE c.business_id=a.business_id AND c.appointment_id=a.id AND c.status='posted')
              FROM appointments a
@@ -2312,6 +2662,7 @@ async fn complete_appointment(
             if current.status != AppointmentStatus::Confirmed {
                 return Err(AppError::conflict("INVALID_TRANSITION", "Only a confirmed appointment can be completed"));
             }
+            ensure_appointment_action_window(current.starts_at, "complete")?;
             let now = utc_text(Utc::now());
             transaction.execute(
                 "INSERT INTO service_executions(business_id, appointment_id, started_at_utc, notes)
@@ -2378,6 +2729,7 @@ async fn no_show_appointment(
             if current.status != AppointmentStatus::Confirmed {
                 return Err(AppError::conflict("INVALID_TRANSITION", "Only a confirmed appointment can be marked no-show"));
             }
+            ensure_appointment_action_window(current.starts_at, "no_show")?;
             let started: i64 = transaction.query_row(
                 "SELECT EXISTS(SELECT 1 FROM service_executions WHERE business_id = ?1 AND appointment_id = ?2)",
                 params![business_id, appointment_id],
@@ -2410,6 +2762,26 @@ async fn no_show_appointment(
         })
         .await?;
     Ok(Json(result))
+}
+
+fn ensure_appointment_action_window(
+    starts_at: DateTime<Utc>,
+    action: &str,
+) -> Result<(), AppError> {
+    let now = Utc::now();
+    match action {
+        "start" | "complete" if starts_at > now + ChronoDuration::minutes(15) => {
+            Err(AppError::conflict(
+                "TOO_EARLY",
+                "Este atendimento ainda não está no horário. A agenda libera a ação até 15 minutos antes.",
+            ))
+        }
+        "no_show" if now < starts_at + ChronoDuration::minutes(10) => Err(AppError::conflict(
+            "TOO_EARLY_NO_SHOW",
+            "A falta só pode ser registrada 10 minutos após o horário marcado.",
+        )),
+        _ => Ok(()),
+    }
 }
 
 async fn create_rating(
@@ -2743,6 +3115,23 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
+        let today_weekday = i64::from(
+            Utc::now()
+                .with_timezone(&timezone)
+                .weekday()
+                .num_days_from_sunday(),
+        );
+        let (status, _, _) = request_json(
+            &app,
+            "POST",
+            "/api/v1/admin/schedules",
+            json!({"barber_user_id":barber_id,"weekday":today_weekday,"start_minute":0,"end_minute":1440}),
+            Some(&owner_cookie),
+            Some(&owner_csrf),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
 
         let (status, client_headers, client) = request_json(
             &app,
@@ -2860,6 +3249,37 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let barber_cookie = cookie(&barber_headers);
         let barber_csrf = barber["csrf_token"].as_str().unwrap().to_string();
+        let too_early = Request::builder()
+            .method("POST")
+            .uri(&format!("/api/v1/appointments/{appointment_id}/start"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ORIGIN, "http://127.0.0.1:5173")
+            .header(header::COOKIE, &barber_cookie)
+            .header("x-csrf-token", &barber_csrf)
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(too_early).await.unwrap().status(),
+            StatusCode::CONFLICT
+        );
+        let mut operational_start = Utc::now();
+        operational_start = operational_start
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap()
+            + ChronoDuration::minutes(5);
+        let (status, _, _) = request_json(
+            &app,
+            "POST",
+            "/api/v1/admin/agenda/bulk",
+            json!({"action":"move","changes":[{"id":appointment_id,"starts_at":utc_text(operational_start)}]}),
+            Some(&owner_cookie),
+            Some(&owner_csrf),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
         let (status, _, completed) = request_json(
             &app,
             "POST",

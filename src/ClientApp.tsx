@@ -31,6 +31,7 @@ export default function ClientApp({ path, onNavigate }: { path: string; onNaviga
   const [dateTime, setDateTime] = useState<DateTimeChoice>({ date: '', time: '' })
   const [completed, setCompleted] = useState<ClientAppointment | null>(null)
   const [reschedulingId, setReschedulingId] = useState<string | null>(null)
+  const [loginRequired, setLoginRequired] = useState(false)
   const requestId = useRef(0)
   const idempotency = useRef<{ fingerprint: string; key: string } | null>(null)
 
@@ -73,13 +74,24 @@ export default function ClientApp({ path, onNavigate }: { path: string; onNaviga
   const success = completed?.id === successId ? completed : appointments.find((item) => item.id === successId && item.status === 'confirmed')
 
   function chooseService(service: CatalogService) {
-    setBooking({ service: toServiceInfo(service), barber: ANY_BARBER })
+    setBooking({ service: toServiceInfo(service), barber: barbers.find((item) => item.id === new URLSearchParams(window.location.search).get('barber')) ?? ANY_BARBER })
     setDateTime({ date: '', time: '' })
     setCompleted(null)
     setReschedulingId(null)
     idempotency.current = null
     onNavigate('/servico')
   }
+
+  useEffect(() => {
+    if (loading || path !== '/home') return
+    const requested = new URLSearchParams(window.location.search).get('service')
+    if (!requested) return
+    const service = services.find((item) => item.id === requested)
+    if (!service) { setError('Este serviço não está mais disponível. Escolha outro no catálogo.'); return }
+    setBooking({ service: toServiceInfo(service), barber: barbers.find((item) => item.id === new URLSearchParams(window.location.search).get('barber')) ?? ANY_BARBER })
+    setDateTime({ date: '', time: '' })
+    onNavigate('/servico')
+  }, [loading, path, services, barbers, onNavigate])
 
   function reuseAppointment(appointment: ClientAppointment, reschedule = false) {
     const service = services.find((item) => item.id === appointment.service.id)
@@ -100,7 +112,11 @@ export default function ClientApp({ path, onNavigate }: { path: string; onNaviga
   }, [booking?.service.id, booking?.barber.id, booking?.barber.isAny])
 
   async function confirmBooking(review: BookingReview) {
-    if (!session || !review.startsAt || !review.barberId || !review.service.id) throw new Error('Escolha um horário válido para continuar.')
+    if (!session) {
+      setLoginRequired(true)
+      return
+    }
+    if (!review.startsAt || !review.barberId || !review.service.id) throw new Error('Escolha um horário válido para continuar.')
     const chosen = barbers.find((barber) => barber.id === review.barberId)
     if (!chosen) throw new Error('Profissional indisponível.')
     try {
@@ -153,7 +169,8 @@ export default function ClientApp({ path, onNavigate }: { path: string; onNaviga
   }
 
   if (loading) return <main role="status" className="flex min-h-dvh items-center justify-center bg-background p-5 text-sm text-muted-foreground">Carregando sua barbearia…</main>
-  const needsLogin = ['/perfil', '/meus-agendamentos', '/horarios', '/confirmacao'].includes(path)
+  if (loginRequired && path === '/horarios') return <LoginScreen initialError="Entre ou crie sua conta para confirmar o horário. Sua seleção ficará preservada." onAuthenticated={async () => { setLoginRequired(false); await refresh() }} onGuest={() => setLoginRequired(false)} />
+  const needsLogin = ['/perfil', '/meus-agendamentos', '/confirmacao'].includes(path)
   if (needsLogin && !session) return <LoginScreen initialError={error} onAuthenticated={() => { void refresh() }} onGuest={() => onNavigate('/home')} />
 
   let page

@@ -175,6 +175,21 @@ pub struct ScheduleRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ScheduleQuery {
+    pub barber_user_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScheduleResponse {
+    pub id: String,
+    pub barber_user_id: String,
+    pub weekday: i64,
+    pub start_minute: i64,
+    pub end_minute: i64,
+    pub active: bool,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockRequest {
     pub barber_user_id: String,
@@ -259,6 +274,10 @@ pub struct AppointmentResponse {
     #[serde(default)]
     pub payment_method: Option<String>,
     #[serde(default)]
+    pub payment_status: String,
+    #[serde(default)]
+    pub paid_at_utc: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub client_note: Option<String>,
     #[serde(default)]
     pub execution_started: bool,
@@ -300,6 +319,11 @@ pub struct DateRangeQuery {
     pub to: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ClientSearchQuery {
+    pub q: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct RevenueReport {
     pub completed_count: i64,
@@ -314,4 +338,13 @@ pub struct AppointmentDetailsRequest {
     pub client_phone: Option<String>,
     pub payment_method: Option<String>,
     pub client_note: Option<String>,
+    #[serde(default)]
+    pub payment_status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BarberClientResponse {
+    pub id: String,
+    pub display_name: String,
+    pub phone: Option<String>,
 }

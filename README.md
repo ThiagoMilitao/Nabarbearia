@@ -4,12 +4,21 @@ Aplicação de agendamento e gestão da NA Barbearia, em Santos/SP. Reúne o sit
 
 ## Tecnologias
 
-- **Frontend:** React 19, Vite, TypeScript/JavaScript, Tailwind CSS, componentes shadcn/ui com Base UI e ícones Lucide.
-- **Design system:** Plus Jakarta Sans, azul `#0099FF`, fundo `#F4F4F6` e superfícies brancas.
+- **Frontend:** React 19, Vite, TypeScript/JavaScript, Tailwind CSS, componentes shadcn/ui com Base UI, ícones Lucide e Framer Motion.
+- **Design system:** Plus Jakarta Sans e azul `#0099FF`; áreas autenticadas claras e página pública com tema escuro isolado.
 - **Backend:** Rust, Axum e SQLite, com migrações automáticas.
 - **Autenticação:** sessão em cookie HttpOnly, proteção CSRF e permissões por perfil.
 
 ## Funcionalidades
+
+### Site público
+
+- Fotos reais do perfil oficial, catálogo por categoria e preços/durações consultados na API.
+- Agendamento a partir do serviço ou do profissional escolhido, preservando a seleção no fluxo do cliente.
+- Galeria, avaliação agregada com link para a Trinks, endereço, mapa e horários em Santos.
+- Layout responsivo, menu acessível e animações que respeitam a preferência por movimento reduzido.
+
+As fontes das fotografias estão em [public/images/landing/README.md](public/images/landing/README.md). Se a consulta à API falhar, o catálogo local é identificado como referência; a reserva consulta os dados atuais. A página não anuncia lembretes automáticos que ainda não estão implementados.
 
 ### Cliente
 
@@ -47,58 +56,83 @@ Ações em lote aceitam até 100 reservas confirmadas e não iniciadas. O remane
 
 ## Executar localmente
 
-### Requisitos
+O projeto é composto por duas partes integradas:
+1. **Backend (API em Rust + SQLite):** roda na porta `3001` (`http://127.0.0.1:3001`).
+2. **Frontend (React 19 + Vite):** roda na porta `5173` (`http://127.0.0.1:5173`) e faz proxy das requisições `/api` para a porta `3001`.
 
-- Node.js **24 recomendado**, com npm.
-- Rust estável e Cargo, com suporte à edição 2024.
-- Ferramentas de compilação C/C++ da plataforma para as dependências nativas do backend.
+---
 
-O SQLite é compilado junto ao backend; não é necessário instalar um servidor de banco separado. Execute os comandos a partir da raiz do repositório.
+### Requisitos prévios
 
-### 1. Instalar dependências
+- **Node.js 20+** (v24 recomendada) e **npm**.
+- **Rust estável e Cargo** (versão 1.85+ com suporte à edição 2024).
+  - Se ainda não tiver o Rust instalado:
+    - **Linux/macOS:** `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+    - **Windows:** Baixe o instalador pelo site oficial [rustup.rs](https://rustup.rs).
+  - Após instalar, reinicie o terminal para que o comando `cargo` fique disponível no seu `PATH`.
+- **Compilador C/C++** básico (ex: `build-essential` no Ubuntu/Debian, Xcode Command Line Tools no macOS) para compilar o SQLite integrado.
+
+---
+
+### Passo a passo rápido (Modo Desenvolvimento)
+
+#### 1. Instalar as dependências do Frontend
+
+Na raiz do projeto:
 
 ```bash
-git clone https://github.com/Leandro-Santana013/Nabarbearia.git
-cd Nabarbearia
+npm install
+# ou se preferir uma instalação limpa e idêntica ao lockfile:
 npm ci
 ```
 
-### 2. Iniciar a API
+#### 2. Iniciar a API Backend (Terminal 1)
 
-Em um terminal:
+Abra o primeiro terminal na raiz do projeto e execute:
 
 ```bash
 npm run dev:backend
 ```
 
-O script lê `backend/.env`. Se não houver token de bootstrap configurado, gera um token aleatório e o salva nesse arquivo, ignorado pelo Git. Não é necessário gerar o token manualmente para o desenvolvimento local.
+> **O que esse comando faz?**
+> - Ele executa o script `scripts/dev-backend.mjs`.
+> - Cria automaticamente o arquivo `backend/.env` caso não exista, gerando um token seguro (`NABARBEARIA_BOOTSTRAP_TOKEN`).
+> - Aplica automaticamente as migrações do banco de dados SQLite local (`backend/data/nabarbearia.db`).
+> - Inicia a API HTTP na porta **3001**.
 
-A API escuta, por padrão, em **http://127.0.0.1:3001**. Para verificar:
-
+Para testar se o backend subiu corretamente, abra outro terminal ou navegador:
 ```bash
 curl http://127.0.0.1:3001/api/v1/health
+# Resposta esperada: {"status":"ok"}
 ```
 
-Resposta esperada: `{"status":"ok"}`.
+#### 3. Iniciar o Frontend Vite (Terminal 2)
 
-### 3. Iniciar o frontend
-
-Em outro terminal:
+Abra um segundo terminal na raiz do projeto e execute:
 
 ```bash
 npm run dev
 ```
 
-Abra **http://127.0.0.1:5173**. O Vite encaminha `/api` para o backend na porta 3001. Mantenha os dois terminais em execução.
+Acesse no navegador:
+👉 **[http://127.0.0.1:5173](http://127.0.0.1:5173)**
 
-### Frontend compilado
+---
+
+### Modo Produção / Build Único (Opcional)
+
+Se preferir rodar a aplicação completa servida diretamente pelo executável do backend (sem precisar do servidor de desenvolvimento do Vite):
 
 ```bash
+# 1. Compila o frontend para a pasta dist/
 npm run build
+
+# 2. Inicia o backend (ele detectará e servirá a pasta dist)
 npm run dev:backend
 ```
 
-Com o build disponível em `dist/`, o próprio backend serve a aplicação em **http://127.0.0.1:3001**. Encerre uma instância já aberta antes de iniciar outra na mesma porta.
+Acesse diretamente em:
+👉 **[http://127.0.0.1:3001](http://127.0.0.1:3001)**
 
 ## Rotas e acesso
 

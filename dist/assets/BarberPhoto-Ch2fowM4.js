@@ -1,0 +1,1 @@
+import{r as m,j as s}from"./index-DhfTDdRz.js";function x({src:o,alt:r,initials:a,className:e,fallbackClassName:i,...n}){const[c,l]=m.useState(!1),t=o?.trim();return!t||c?s.jsx("span",{className:i??e,role:"img","aria-label":r,children:a}):s.jsx("img",{...n,className:e,src:t,alt:r,onError:()=>l(!0)})}export{x as B};

@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
-import PlatformApp from './PlatformApp'
-import PublicSite from './PublicSite'
-import ClientApp from './ClientApp'
-import StyleguideLayout from '../app/styleguide/layout'
-import StyleguidePage from '../app/styleguide/page'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import LoginScreen from './pages/LoginScreen'
-import BarberDashboard from './pages/BarberDashboard'
-import OwnerDashboard from './pages/OwnerDashboard'
+const PlatformApp = lazy(() => import('./PlatformApp'))
+const PublicSite = lazy(() => import('./PublicSite'))
+const ClientApp = lazy(() => import('./ClientApp'))
+const StyleguideLayout = lazy(() => import('../app/styleguide/layout'))
+const StyleguidePage = lazy(() => import('../app/styleguide/page'))
+const BarberDashboard = lazy(() => import('./pages/BarberDashboard'))
+const OwnerDashboard = lazy(() => import('./pages/OwnerDashboard'))
 
 export function navigateTo(path: string) {
   window.history.pushState({}, '', path)
@@ -24,16 +24,20 @@ export default function App() {
   }, [])
 
   const cleanPath = currentPath.replace(/\/$/, '')
-  if (cleanPath === '/gestao' || cleanPath.startsWith('/gestao/')) return <OwnerDashboard path={cleanPath} onNavigate={navigateTo} />
-  if (CLIENT_ROUTES.has(cleanPath)) return <ClientApp path={cleanPath} onNavigate={navigateTo} />
-  if (cleanPath === '/barbeiro' || cleanPath.startsWith('/barbeiro/')) return <BarberDashboard />
+  const fallback = <main role="status" className="flex min-h-dvh items-center justify-center bg-background p-5 text-sm text-muted-foreground">Abrindo a NA Barbearia…</main>
+  const renderLazy = (page: React.ReactNode) => <Suspense fallback={fallback}>{page}</Suspense>
+  if (cleanPath === '/gestao' || cleanPath.startsWith('/gestao/')) return renderLazy(<OwnerDashboard path={cleanPath} onNavigate={navigateTo} />)
+  if (CLIENT_ROUTES.has(cleanPath)) return renderLazy(<ClientApp path={cleanPath} onNavigate={navigateTo} />)
+  if (cleanPath === '/barbeiro' || cleanPath.startsWith('/barbeiro/')) return renderLazy(<BarberDashboard />)
   if (cleanPath === '/login' || cleanPath === '/entrar' || cleanPath === '/cadastro') {
     return <LoginScreen key={cleanPath} initialMode={cleanPath === '/cadastro' ? 'register' : 'login'}
-      onAuthenticated={(session) => navigateTo(session.user.roles.includes('owner') ? '/gestao/financeiro' : session.user.roles.includes('barber') ? '/barbeiro' : '/home')}
+      onAuthenticated={(session) => navigateTo(session.user.roles.includes('owner') ? '/gestao/agenda-geral' : session.user.roles.includes('barber') ? '/barbeiro' : '/home')}
       onGuest={() => navigateTo('/home')} />
   }
   if (cleanPath === '/styleguide' || cleanPath.startsWith('/styleguide/')) {
-    return <StyleguideLayout pathname={cleanPath}><StyleguidePage /></StyleguideLayout>
+    return renderLazy(<StyleguideLayout pathname={cleanPath}><StyleguidePage /></StyleguideLayout>)
   }
-  return cleanPath === '/painel' || cleanPath === '/agendar' ? <PlatformApp /> : <PublicSite onNavigate={navigateTo} />
+  return cleanPath === '/painel' || cleanPath === '/agendar'
+    ? renderLazy(<PlatformApp />)
+    : renderLazy(<PublicSite onNavigate={navigateTo} />)
 }

@@ -1,4 +1,4 @@
-import type { OwnerSummary } from '@/lib/owner-dashboard'
+import type { OwnerSchedule, OwnerSummary } from '@/lib/owner-dashboard'
 import type { Appointment, Barber, Service, UserRole } from '../types'
 
 const API_BASE_URL = '/api/v1'
@@ -58,6 +58,8 @@ export interface AppointmentDto {
   service_name?: string
   client_phone?: string | null
   payment_method?: string | null
+  payment_status?: 'pending' | 'paid'
+  paid_at_utc?: string | null
   client_note?: string | null
   execution_started?: boolean
   commission_cents?: number | null
@@ -84,6 +86,8 @@ function mapAppointment(appointment: AppointmentDto): Appointment {
     rating: appointment.rating ?? undefined,
     clientPhone: appointment.client_phone ?? undefined,
     paymentMethod: appointment.payment_method ?? undefined,
+    paymentStatus: appointment.payment_status ?? 'pending',
+    paidAt: appointment.paid_at_utc ?? undefined,
     clientNote: appointment.client_note ?? undefined,
     executionStarted: appointment.execution_started,
     commissionCents: appointment.commission_cents ?? undefined,
@@ -273,7 +277,20 @@ class ApiService {
     })
   }
 
-  async createWalkIn(input: { barber_user_id: string; service_id: string; starts_at: string; client_name: string; client_phone?: string; payment_method?: string; client_note?: string }, key: string): Promise<void> {
+  async listAdminSchedules(barberId?: string): Promise<OwnerSchedule[]> {
+    const query = barberId ? `?${new URLSearchParams({ barber_user_id: barberId })}` : ''
+    return this.request(`/admin/schedules${query}`)
+  }
+
+  async updateSchedule(id: string, input: { barber_user_id: string; weekday: number; start_minute: number; end_minute: number }): Promise<void> {
+    await this.request(`/admin/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+
+  async deleteSchedule(id: string): Promise<void> {
+    await this.request(`/admin/schedules/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' })
+  }
+
+  async createWalkIn(input: { barber_user_id: string; service_id: string; starts_at: string; client_user_id?: string; client_name?: string; client_phone?: string; payment_method?: string; client_note?: string }, key: string): Promise<void> {
     await this.request('/barber/walk-ins', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(input) })
   }
 
@@ -285,7 +302,19 @@ class ApiService {
     await this.request('/barber/blocks', { method: 'POST', body: JSON.stringify(input) })
   }
 
-  async updateAppointmentDetails(id: string, input: { client_phone?: string; payment_method?: string; client_note?: string }): Promise<void> {
+  async updateOwnBlock(id: string, input: { barber_user_id: string; starts_at_utc: string; ends_at_utc: string; reason: string }): Promise<void> {
+    await this.request(`/barber/blocks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+
+  async deleteOwnBlock(id: string): Promise<void> {
+    await this.request(`/barber/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' })
+  }
+
+  async listBarberClients(query: string): Promise<{ id: string; display_name: string; phone?: string | null }[]> {
+    return this.request(`/barber/clients?${new URLSearchParams({ q: query })}`)
+  }
+
+  async updateAppointmentDetails(id: string, input: { client_phone?: string; payment_method?: string; client_note?: string; payment_status?: 'pending' | 'paid' }): Promise<void> {
     await this.request(`/appointments/${encodeURIComponent(id)}/details`, { method: 'PATCH', body: JSON.stringify(input) })
   }
 

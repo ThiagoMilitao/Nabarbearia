@@ -113,7 +113,7 @@ export default function PlatformApp() {
 
 function OwnerManagementRedirect() {
   useEffect(() => {
-    window.history.replaceState({}, '', '/gestao/financeiro')
+    window.history.replaceState({}, '', '/gestao/agenda-geral')
     window.dispatchEvent(new Event('popstate'))
   }, [])
   return <LoadingScreen label="Abrindo painel de gestão" />

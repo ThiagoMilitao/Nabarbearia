@@ -1,0 +1,261 @@
+{
+  "_BarberDashboard-C2_IUdHf.js": {
+    "file": "assets/BarberDashboard-C2_IUdHf.js",
+    "name": "BarberDashboard",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_badge-DaSBxAW5.js",
+      "_barber-schedule-DYD8pv-x.js",
+      "_chevron-down-67jpUqEJ.js",
+      "_scissors-Po_JTDP2.js"
+    ]
+  },
+  "_BarberPhoto-Ch2fowM4.js": {
+    "file": "assets/BarberPhoto-Ch2fowM4.js",
+    "name": "BarberPhoto",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_CommissionRuleForm-DbSVSV2g.js": {
+    "file": "assets/CommissionRuleForm-DbSVSV2g.js",
+    "name": "CommissionRuleForm",
+    "imports": [
+      "index.html",
+      "_badge-DaSBxAW5.js"
+    ]
+  },
+  "_FormContext-CoM7Kban.js": {
+    "file": "assets/FormContext-CoM7Kban.js",
+    "name": "FormContext",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_badge-DaSBxAW5.js": {
+    "file": "assets/badge-DaSBxAW5.js",
+    "name": "badge",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_barber-schedule-DYD8pv-x.js": {
+    "file": "assets/barber-schedule-DYD8pv-x.js",
+    "name": "barber-schedule",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_chevron-down-67jpUqEJ.js": {
+    "file": "assets/chevron-down-67jpUqEJ.js",
+    "name": "chevron-down",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_circle-check-KgszFeXf.js": {
+    "file": "assets/circle-check-KgszFeXf.js",
+    "name": "circle-check",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_radio-group-u3kPGclP.js": {
+    "file": "assets/radio-group-u3kPGclP.js",
+    "name": "radio-group",
+    "imports": [
+      "index.html",
+      "_FormContext-CoM7Kban.js"
+    ]
+  },
+  "_scissors-Po_JTDP2.js": {
+    "file": "assets/scissors-Po_JTDP2.js",
+    "name": "scissors",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_siteConfig-BQ66qs9x.js": {
+    "file": "assets/siteConfig-BQ66qs9x.js",
+    "name": "siteConfig",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_star-BA8pLCPw.js": {
+    "file": "assets/star-BA8pLCPw.js",
+    "name": "star",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_tabs-DM9WWFFE.js": {
+    "file": "assets/tabs-DM9WWFFE.js",
+    "name": "tabs",
+    "imports": [
+      "index.html",
+      "_FormContext-CoM7Kban.js"
+    ]
+  },
+  "_x-5UPFDnkB.js": {
+    "file": "assets/x-5UPFDnkB.js",
+    "name": "x",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "app/styleguide/layout.tsx": {
+    "file": "assets/layout-Bc6QdF1G.js",
+    "name": "layout",
+    "src": "app/styleguide/layout.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
+    ]
+  },
+  "app/styleguide/page.tsx": {
+    "file": "assets/page-DphC7FPx.js",
+    "name": "page",
+    "src": "app/styleguide/page.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_badge-DaSBxAW5.js",
+      "_radio-group-u3kPGclP.js",
+      "_circle-check-KgszFeXf.js",
+      "_scissors-Po_JTDP2.js",
+      "_FormContext-CoM7Kban.js"
+    ]
+  },
+  "index.html": {
+    "file": "assets/index-DhfTDdRz.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/PlatformApp.tsx",
+      "src/PublicSite.tsx",
+      "src/ClientApp.tsx",
+      "app/styleguide/layout.tsx",
+      "app/styleguide/page.tsx",
+      "_BarberDashboard-C2_IUdHf.js",
+      "src/pages/OwnerDashboard.tsx"
+    ],
+    "css": [
+      "assets/index-quzxT0QJ.css"
+    ],
+    "assets": [
+      "assets/plus-jakarta-sans-vietnamese-wght-normal-qRpaaN48.woff2",
+      "assets/plus-jakarta-sans-latin-ext-wght-normal-DmpS2jIq.woff2",
+      "assets/plus-jakarta-sans-latin-wght-normal-eXO_dkmS.woff2",
+      "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+      "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+      "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+      "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+      "assets/geist-latin-wght-normal-BgDaEnEv.woff2"
+    ]
+  },
+  "node_modules/@fontsource-variable/geist/files/geist-cyrillic-ext-wght-normal.woff2": {
+    "file": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+    "src": "node_modules/@fontsource-variable/geist/files/geist-cyrillic-ext-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/geist/files/geist-cyrillic-wght-normal.woff2": {
+    "file": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+    "src": "node_modules/@fontsource-variable/geist/files/geist-cyrillic-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2": {
+    "file": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+    "src": "node_modules/@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2": {
+    "file": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+    "src": "node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/geist/files/geist-vietnamese-wght-normal.woff2": {
+    "file": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+    "src": "node_modules/@fontsource-variable/geist/files/geist-vietnamese-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-ext-wght-normal.woff2": {
+    "file": "assets/plus-jakarta-sans-latin-ext-wght-normal-DmpS2jIq.woff2",
+    "src": "node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-ext-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2": {
+    "file": "assets/plus-jakarta-sans-latin-wght-normal-eXO_dkmS.woff2",
+    "src": "node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-vietnamese-wght-normal.woff2": {
+    "file": "assets/plus-jakarta-sans-vietnamese-wght-normal-qRpaaN48.woff2",
+    "src": "node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-vietnamese-wght-normal.woff2"
+  },
+  "src/ClientApp.tsx": {
+    "file": "assets/ClientApp-MBC5iVse.js",
+    "name": "ClientApp",
+    "src": "src/ClientApp.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_tabs-DM9WWFFE.js",
+      "_badge-DaSBxAW5.js",
+      "_x-5UPFDnkB.js",
+      "_FormContext-CoM7Kban.js",
+      "_radio-group-u3kPGclP.js",
+      "_chevron-down-67jpUqEJ.js",
+      "_scissors-Po_JTDP2.js",
+      "_barber-schedule-DYD8pv-x.js",
+      "_siteConfig-BQ66qs9x.js",
+      "_star-BA8pLCPw.js"
+    ]
+  },
+  "src/PlatformApp.tsx": {
+    "file": "assets/PlatformApp-CQLhkea1.js",
+    "name": "PlatformApp",
+    "src": "src/PlatformApp.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_CommissionRuleForm-DbSVSV2g.js",
+      "_BarberPhoto-Ch2fowM4.js",
+      "_BarberDashboard-C2_IUdHf.js",
+      "_scissors-Po_JTDP2.js",
+      "_barber-schedule-DYD8pv-x.js",
+      "_circle-check-KgszFeXf.js",
+      "_x-5UPFDnkB.js",
+      "_badge-DaSBxAW5.js",
+      "_star-BA8pLCPw.js",
+      "_chevron-down-67jpUqEJ.js"
+    ]
+  },
+  "src/PublicSite.tsx": {
+    "file": "assets/PublicSite-Cp8uhNA4.js",
+    "name": "PublicSite",
+    "src": "src/PublicSite.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_siteConfig-BQ66qs9x.js",
+      "_BarberPhoto-Ch2fowM4.js",
+      "_chevron-down-67jpUqEJ.js",
+      "_x-5UPFDnkB.js",
+      "_scissors-Po_JTDP2.js"
+    ]
+  },
+  "src/pages/OwnerDashboard.tsx": {
+    "file": "assets/OwnerDashboard-eGl1zc_g.js",
+    "name": "OwnerDashboard",
+    "src": "src/pages/OwnerDashboard.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_badge-DaSBxAW5.js",
+      "_tabs-DM9WWFFE.js",
+      "_x-5UPFDnkB.js",
+      "_CommissionRuleForm-DbSVSV2g.js",
+      "_chevron-down-67jpUqEJ.js",
+      "_FormContext-CoM7Kban.js",
+      "_barber-schedule-DYD8pv-x.js",
+      "_BarberDashboard-C2_IUdHf.js",
+      "_scissors-Po_JTDP2.js"
+    ]
+  }
+}

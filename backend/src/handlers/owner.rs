@@ -38,9 +38,16 @@ pub(super) async fn summary(
     let to = utc_text(to.unwrap());
     let business = context.user.business_id;
     let result = state.db.with_conn(move |connection| -> Result<_, AppError> {
-        let totals: (i64,i64,i64,i64,i64,i64) = connection.query_row(
-            "SELECT COALESCE(SUM(CASE WHEN a.status='completed' THEN a.price_cents ELSE 0 END),0), COUNT(*), COALESCE(SUM(a.status='completed'),0), COALESCE(SUM(a.status='no_show'),0), COALESCE(SUM(CASE WHEN a.status='completed' AND c.status='posted' THEN c.amount_cents ELSE 0 END),0), COALESCE(SUM(a.status='completed' AND (c.status IS NULL OR c.status <> 'posted')),0) FROM appointments a LEFT JOIN commission_snapshots c ON c.business_id=a.business_id AND c.appointment_id=a.id WHERE a.business_id=?1 AND a.starts_at_utc>=?2 AND a.starts_at_utc<?3 AND a.status<>'cancelled'",
-            params![business,from,to], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
+        let totals: (i64,i64,i64,i64,i64,i64,i64,i64) = connection.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN a.status='completed' THEN a.price_cents ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN a.status='completed' AND a.payment_status='paid' THEN a.price_cents ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN a.status='completed' AND a.payment_status<>'paid' THEN a.price_cents ELSE 0 END),0),
+                    COUNT(*), COALESCE(SUM(a.status='completed'),0), COALESCE(SUM(a.status='no_show'),0),
+                    COALESCE(SUM(CASE WHEN a.status='completed' AND c.status='posted' THEN c.amount_cents ELSE 0 END),0),
+                    COALESCE(SUM(a.status='completed' AND (c.status IS NULL OR c.status <> 'posted')),0)
+             FROM appointments a LEFT JOIN commission_snapshots c ON c.business_id=a.business_id AND c.appointment_id=a.id
+             WHERE a.business_id=?1 AND a.starts_at_utc>=?2 AND a.starts_at_utc<?3 AND a.status<>'cancelled'",
+            params![business,from,to], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)))?;
         let outstanding: i64 = connection.query_row("SELECT COALESCE(SUM(c.amount_cents),0) FROM commission_snapshots c WHERE c.business_id=?1 AND c.status='posted' AND NOT EXISTS(SELECT 1 FROM commission_payout_items p WHERE p.business_id=c.business_id AND p.appointment_id=c.appointment_id)",params![business],|r|r.get(0))?;
         let mut team_query = connection.prepare("SELECT u.id,u.display_name,u.email,p.photo_url,p.active FROM users u JOIN barber_profiles p ON p.business_id=u.business_id AND p.user_id=u.id WHERE u.business_id=?1 ORDER BY u.display_name")?;
         let team_base = team_query.query_map(params![business],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,bool>(4)?)))?.collect::<Result<Vec<_>,_>>()?;
@@ -56,7 +63,7 @@ pub(super) async fn summary(
         let payments=payments_query.query_map(params![business,from,to],|r|Ok(json!({"method":r.get::<_,String>(0)?,"count":r.get::<_,i64>(1)?,"amount_cents":r.get::<_,i64>(2)?})))?.collect::<Result<Vec<_>,_>>()?;
         let mut payouts_query=connection.prepare("SELECT p.id,u.display_name,p.amount_cents,p.created_at_utc FROM commission_payouts p JOIN users u ON u.business_id=p.business_id AND u.id=p.barber_user_id WHERE p.business_id=?1 AND p.created_at_utc>=?2 AND p.created_at_utc<?3 ORDER BY p.created_at_utc DESC LIMIT 100")?;
         let payouts=payouts_query.query_map(params![business,from,to],|r|Ok(json!({"id":r.get::<_,String>(0)?,"barber_name":r.get::<_,String>(1)?,"amount_cents":r.get::<_,i64>(2)?,"created_at":r.get::<_,String>(3)?})))?.collect::<Result<Vec<_>,_>>()?;
-        Ok(json!({"revenue_cents":totals.0,"total_count":totals.1,"completed_count":totals.2,"no_show_count":totals.3,"commission_cents":totals.4,"commission_pending_count":totals.5,"outstanding_cents":outstanding,"retained_cents":totals.0-totals.4,"team":team,"rules":rules,"payments":payments,"payouts":payouts}))
+        Ok(json!({"revenue_cents":totals.0,"received_cents":totals.1,"pending_payment_cents":totals.2,"total_count":totals.3,"completed_count":totals.4,"no_show_count":totals.5,"commission_cents":totals.6,"commission_pending_count":totals.7,"outstanding_cents":outstanding,"retained_cents":totals.0-totals.6,"team":team,"rules":rules,"payments":payments,"payouts":payouts}))
     }).await?;
     Ok(Json(result))
 }

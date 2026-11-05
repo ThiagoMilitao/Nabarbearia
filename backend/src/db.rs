@@ -45,6 +45,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "commission_payouts",
         include_str!("../migrations/0008_commission_payouts.sql"),
     ),
+    (
+        9,
+        "appointment_payments",
+        include_str!("../migrations/0009_appointment_payments.sql"),
+    ),
 ];
 
 #[derive(Debug, Error)]

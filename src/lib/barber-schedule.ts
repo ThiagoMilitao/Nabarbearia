@@ -29,3 +29,19 @@ export function dailySchedule(appointments: Appointment[], barberId: string, dat
 }
 export const money = (cents: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100)
 export const scheduleTime = (date: string) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(date))
+
+export function shopTime(now = new Date()) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now)
+}
+
+export function minutesFromNow(minutes: number, now = new Date()) {
+  return shopTime(new Date(now.getTime() + minutes * 60_000))
+}
+
+export function canStartAppointment(item: Appointment, now = new Date()) {
+  return item.status === 'confirmed' && new Date(item.startsAt ?? item.date).getTime() <= now.getTime() + 15 * 60_000
+}
+
+export function canMarkNoShow(item: Appointment, now = new Date()) {
+  return item.status === 'confirmed' && new Date(item.startsAt ?? item.date).getTime() <= now.getTime() - 10 * 60_000
+}

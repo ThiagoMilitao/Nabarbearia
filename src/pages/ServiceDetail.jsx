@@ -26,6 +26,7 @@ export default function ServiceDetail({
   onSelectSchedule,
 } = {}) {
   const [selectedBarber, setSelectedBarber] = useState(initialBarberId)
+  const [selectionNotice, setSelectionNotice] = useState("")
   const id = useId()
   const chosenBarber = barbers.find((barber) => barber.id === selectedBarber) ?? ANY_BARBER
   const selectedName = chosenBarber.isAny ? "Qualquer disponível" : chosenBarber.name
@@ -37,7 +38,7 @@ export default function ServiceDetail({
       return
     }
     // Demonstração independente; a próxima etapa é conectada pelo callback acima.
-    window.alert(`Profissional selecionado: ${selectedName}. Serviço: ${service.title}.`)
+    setSelectionNotice(`Profissional selecionado: ${selectedName}. Serviço: ${service.title}.`)
   }
 
   return (
@@ -158,6 +159,7 @@ export default function ServiceDetail({
             })}
           </RadioGroup>
         </section>
+        {selectionNotice && <p role="status" className="mt-4 rounded-xl bg-blue-50 p-3 text-center text-xs text-blue-800">{selectionNotice}</p>}
       </main>
 
       <footer className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-white/80 px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-md">

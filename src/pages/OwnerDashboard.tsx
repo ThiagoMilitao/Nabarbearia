@@ -39,6 +39,7 @@ import { money, scheduleTime, shopDate } from "@/lib/barber-schedule";
 import {
   noShowRate,
   ownerRange,
+  type OwnerSchedule,
   type OwnerSummary,
 } from "@/lib/owner-dashboard";
 import type { Appointment, Service } from "@/types";
@@ -76,6 +77,9 @@ export default function OwnerDashboard({
   const [editor, setEditor] = useState<Editor | null>(null);
   const [loading, setLoading] = useState(true);
   const [agendaLoading, setAgendaLoading] = useState(false);
+  const [agendaRefreshing, setAgendaRefreshing] = useState(false);
+  const [agendaStale, setAgendaStale] = useState(false);
+  const [summaryStale, setSummaryStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [agendaError, setAgendaError] = useState("");
@@ -83,11 +87,13 @@ export default function OwnerDashboard({
   const [hybridPrompt, setHybridPrompt] = useState(false);
   const sequence = useRef(0);
   const agendaSequence = useRef(0);
+  const loadedSummary = useRef(false);
+  const loadedAgendaDate = useRef("");
   const pending = useRef(false);
   const allowed = session?.user.roles.includes("owner");
   const tab = sections.some((item) => path === `/gestao/${item.value}`)
     ? path.split("/").at(-1)!
-    : "financeiro";
+    : "agenda-geral";
   const hybrid = path === "/gestao/minha-agenda";
   const range = useMemo(
     () => ownerRange(reportDate, period),
@@ -122,12 +128,18 @@ export default function OwnerDashboard({
       if (request === sequence.current) {
         setSummary(data);
         setServices(catalog);
+        setSummaryStale(false);
+        loadedSummary.current = true;
         setError("");
       }
     } catch (failure) {
       if (request === sequence.current) {
-        setSummary(null);
-        setServices([]);
+        if (!loadedSummary.current) {
+          setSummary(null);
+          setServices([]);
+        } else {
+          setSummaryStale(true);
+        }
         setError(
           failure instanceof Error
             ? failure.message
@@ -140,17 +152,23 @@ export default function OwnerDashboard({
       if (request === sequence.current) setLoading(false);
     }
   }, [allowed, range]);
-  const loadAgenda = useCallback(async () => {
+  const loadAgenda = useCallback(async ({ quiet = false } = {}) => {
     if (!allowed) return;
     const request = ++agendaSequence.current;
-    setAgendaLoading(true);
+    if (quiet) setAgendaRefreshing(true);
+    else setAgendaLoading(true);
     setAgendaError("");
     try {
       const data = await api.listAppointments(ownerRange(agendaDate, "day"));
-      if (request === agendaSequence.current) setAppointments(data);
+      if (request === agendaSequence.current) {
+        setAppointments(data);
+        setAgendaStale(false);
+        loadedAgendaDate.current = agendaDate;
+      }
     } catch (failure) {
       if (request === agendaSequence.current) {
-        setAppointments([]);
+        if (loadedAgendaDate.current !== agendaDate) setAppointments([]);
+        else setAgendaStale(true);
         setAgendaError(
           failure instanceof Error
             ? failure.message
@@ -158,7 +176,10 @@ export default function OwnerDashboard({
         );
       }
     } finally {
-      if (request === agendaSequence.current) setAgendaLoading(false);
+      if (request === agendaSequence.current) {
+        setAgendaLoading(false);
+        setAgendaRefreshing(false);
+      }
     }
   }, [allowed, agendaDate]);
   useEffect(() => {
@@ -168,8 +189,16 @@ export default function OwnerDashboard({
     };
   }, [refresh]);
   useEffect(() => {
-    if (tab === "agenda-geral" && !hybrid) void loadAgenda();
+    if (tab !== "agenda-geral" || hybrid) return;
+    void loadAgenda();
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void loadAgenda({ quiet: true });
+    };
+    const timer = window.setInterval(refreshIfVisible, 45_000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
     return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
       agendaSequence.current++;
     };
   }, [tab, hybrid, loadAgenda]);
@@ -293,7 +322,7 @@ export default function OwnerDashboard({
               <Button
                 variant="outline"
                 className={button}
-                onClick={() => onNavigate("/gestao/financeiro")}
+                onClick={() => onNavigate("/gestao/agenda-geral")}
               >
                 <ArrowRightLeft className="size-4" />
                 Voltar ao Painel Geral
@@ -449,6 +478,11 @@ export default function OwnerDashboard({
                   {notice}
                 </p>
               )}
+              {summaryStale && (
+                <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+                  Os indicadores exibidos são da última atualização. <button type="button" className="font-semibold underline" onClick={() => void refresh()}>Atualizar agora</button>
+                </p>
+              )}
               <TabsContent value="financeiro">
                 <p className="text-xs capitalize text-muted-foreground">
                   {periodLabel}
@@ -460,18 +494,14 @@ export default function OwnerDashboard({
                     description="Serviços concluídos no período"
                   />
                   <Metric
-                    label="Comissões a pagar"
-                    value={summary ? money(summary.outstanding_cents) : "—"}
-                    description="Saldo acumulado ainda não repassado"
+                    label="Recebido"
+                    value={summary ? money(summary.received_cents) : "—"}
+                    description="Atendimentos concluídos já marcados como recebidos"
                   />
                   <Metric
-                    label="Lucro líquido"
-                    value="Não apurado"
-                    description={
-                      summary
-                        ? `Após comissões: ${money(summary.retained_cents)}. Despesas e impostos não cadastrados.`
-                        : "Aguardando dados financeiros"
-                    }
+                    label="Pendente"
+                    value={summary ? money(summary.pending_payment_cents) : "—"}
+                    description="Atendimentos concluídos ainda sem confirmação de recebimento"
                   />
                   <Metric
                     label="Atendimentos / No-show"
@@ -482,6 +512,10 @@ export default function OwnerDashboard({
                     }
                     description="Concluídos / taxa de faltas entre reservas não canceladas"
                   />
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-slate-50 p-3 text-xs text-muted-foreground">
+                  <strong className="text-foreground">Resultado após comissões:</strong>{" "}
+                  {summary ? money(summary.retained_cents) : "—"}. O lucro líquido final ainda não é calculado porque despesas e impostos não estão cadastrados.
                 </div>
                 {loading && (
                   <p role="status" className="text-xs text-muted-foreground">
@@ -606,6 +640,7 @@ export default function OwnerDashboard({
                     </Button>
                   </CardHeader>
                   <CardContent className="px-0">
+                    <div className="hidden md:block">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -728,6 +763,26 @@ export default function OwnerDashboard({
                         })}
                       </TableBody>
                     </Table>
+                    </div>
+                    <div className="space-y-3 px-3 md:hidden">
+                      {team.map((item) => {
+                        const rules = summary!.rules.filter((rule) => rule.barber_id === item.id || rule.barber_id === null);
+                        return (
+                          <Card key={item.id} className="gap-3 rounded-2xl border border-border/60 p-3 shadow-none">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <Avatar className="size-10 rounded-xl"><AvatarImage src={item.photo_url} /><AvatarFallback className="rounded-xl">{item.name.slice(0, 2)}</AvatarFallback></Avatar>
+                                <div className="min-w-0"><p className="truncate text-sm font-semibold">{item.name}</p><Badge className={`border-0 text-[10px] ${item.active ? "bg-blue-50 text-primary" : "bg-gray-100 text-gray-500"}`}>{item.active ? "Ativo" : "Inativo"}</Badge></div>
+                              </div>
+                              <p className="shrink-0 text-sm font-bold text-primary">{money(item.outstanding_cents)}<span className="block text-[10px] font-normal text-muted-foreground">a repassar</span></p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2 text-xs"><span><b className="block text-sm">{item.completed_count}</b>atendimentos</span><span><b className="block text-sm">{money(item.revenue_cents)}</b>faturamento</span></div>
+                            <p className="text-xs text-muted-foreground">Comissão: {rules.length ? rules.map((rule) => `${rule.rule_type === "percent" ? `${rule.amount / 100}%` : money(rule.amount)} · ${rule.service_id ? (services.find((service) => service.id === rule.service_id)?.name ?? "Serviço específico") : "Geral"}`).join(" · ") : "Não configurada"}</p>
+                            <div className="grid grid-cols-2 gap-2"><Button variant="outline" className={button} onClick={() => edit({ kind: "commission", item })}>Comissão</Button><Button variant="outline" className={button} onClick={() => edit({ kind: "barber", item })}>Editar</Button><Button variant="outline" className={button} onClick={() => edit({ kind: "schedule", item })}>Escala</Button><Button className={button} disabled={busy || item.outstanding_cents <= 0} onClick={() => edit({ kind: "payout", item })}>Registrar repasse</Button></div>
+                          </Card>
+                        );
+                      })}
+                    </div>
                     {!loading && !team.length && (
                       <p className="p-4 text-sm text-muted-foreground">
                         Nenhum barbeiro cadastrado. Cadastre a equipe para
@@ -764,18 +819,23 @@ export default function OwnerDashboard({
                     ]}
                   />
                   <Button
-                    disabled={busy || agendaLoading}
+                    disabled={busy || agendaLoading || agendaRefreshing}
                     variant="outline"
                     className={button}
                     onClick={() => void loadAgenda()}
                   >
-                    <RefreshCw className="size-4" />
+                    <RefreshCw className={`size-4 ${agendaRefreshing ? "animate-spin motion-reduce:animate-none" : ""}`} />
                     Atualizar
                   </Button>
                 </div>
                 {agendaError && (
                   <p role="alert" className="text-xs text-destructive">
                     {agendaError}
+                  </p>
+                )}
+                {agendaStale && (
+                  <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+                    A agenda pode estar desatualizada. <button type="button" className="font-semibold underline" onClick={() => void loadAgenda()}>Atualizar agora</button>
                   </p>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
@@ -804,6 +864,7 @@ export default function OwnerDashboard({
                   </Button>
                 </div>
                 <Card className="rounded-2xl bg-white py-0 shadow-sm">
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -888,6 +949,17 @@ export default function OwnerDashboard({
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
+                  <div className="space-y-3 p-3 md:hidden">
+                    {visible.map((item) => (
+                      <Card key={item.id} className="gap-3 rounded-2xl border border-border/60 p-3 shadow-none">
+                        <div className="flex items-start gap-3">
+                          <input type="checkbox" aria-label={`Selecionar agendamento de ${item.clientName} às ${scheduleTime(item.startsAt ?? item.date)}`} disabled={busy || item.status !== "confirmed" || item.executionStarted} checked={selected.includes(item.id)} onChange={(e) => setSelected((old) => e.target.checked ? [...old, item.id] : old.filter((id) => id !== item.id))} className="mt-1 size-4" />
+                          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">{item.clientName}</p><Badge className="border-0 bg-blue-50 text-xs text-primary">{item.status === "confirmed" && item.executionStarted ? "Em atendimento" : statusLabel[item.status]}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{scheduleTime(item.startsAt ?? item.date)} · {item.serviceName} · {item.barberName}</p>{item.clientNote && <p className="mt-1 text-[11px] text-amber-700">Obs: {item.clientNote}</p>}</div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
                   {agendaLoading ? (
                     <p
                       role="status"
@@ -925,6 +997,7 @@ export default function OwnerDashboard({
                   </Button>
                 </div>
                 <Card className="rounded-2xl bg-white py-0 shadow-sm">
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -972,6 +1045,16 @@ export default function OwnerDashboard({
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
+                  <div className="space-y-3 p-3 md:hidden">
+                    {services.map((item) => (
+                      <Card key={item.id} className="gap-3 rounded-2xl border border-border/60 p-3 shadow-none">
+                        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.category} · {item.durationMinutes} min</p></div><Badge className={`shrink-0 border-0 text-xs ${item.active ? "bg-blue-50 text-primary" : "bg-gray-100 text-gray-500"}`}>{item.active ? "Ativo" : "Inativo"}</Badge></div>
+                        <p className="text-lg font-bold text-primary">{money(item.priceCents)}</p>
+                        <Button variant="outline" className={`${button} w-full`} disabled={busy} onClick={() => edit({ kind: "service", item })}>Editar serviço</Button>
+                      </Card>
+                    ))}
+                  </div>
                   {!services.length && !loading && (
                     <p className="p-5 text-center text-sm text-muted-foreground">
                       Nenhum serviço cadastrado.

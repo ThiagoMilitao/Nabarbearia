@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import CommissionRuleForm from "@/components/CommissionRuleForm";
 import OwnerSelect from "./OwnerSelect";
 import { api } from "@/services/api";
 import type { Appointment, Service } from "@/types";
-import type { OwnerBarber } from "@/lib/owner-dashboard";
+import type { OwnerBarber, OwnerSchedule } from "@/lib/owner-dashboard";
 import { moveToDate, today } from "@/lib/owner-dashboard";
 import { money } from "@/lib/barber-schedule";
 export type Editor =
@@ -60,8 +60,25 @@ export default function OwnerEditor({
   const [weekday, setWeekday] = useState("1");
   const [start, setStart] = useState("10:00");
   const [end, setEnd] = useState("20:00");
+  const [schedules, setSchedules] = useState<OwnerSchedule[]>([]);
+  const [editingSchedule, setEditingSchedule] = useState<OwnerSchedule | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
   const key = useRef(crypto.randomUUID());
   const field = "h-11 rounded-xl bg-white text-base! sm:text-sm!";
+  const formatMinute = (value: number) => `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+  const weekdayLabel = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  async function loadSchedules() {
+    if (editor.kind !== "schedule") return;
+    setScheduleLoading(true);
+    try {
+      setSchedules(await api.listAdminSchedules(editor.item.id));
+    } finally {
+      setScheduleLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (editor.kind === "schedule") void loadSchedules();
+  }, [editor]);
   const labels = {
     service: service ? "Editar serviço" : "Novo serviço",
     barber: barber ? "Editar profissional" : "Novo barbeiro",
@@ -119,12 +136,9 @@ export default function OwnerEditor({
         };
         if (end <= start)
           throw new Error("O fim deve ser posterior ao início.");
-        await api.createSchedule({
-          barber_user_id: editor.item.id,
-          weekday: Number(weekday),
-          start_minute: minute(start),
-          end_minute: minute(end),
-        });
+        const input = { barber_user_id: editor.item.id, weekday: Number(weekday), start_minute: minute(start), end_minute: minute(end) };
+        if (editingSchedule) await api.updateSchedule(editingSchedule.id, input);
+        else await api.createSchedule(input);
       } else if (editor.kind === "payout")
         await api.recordPayout(
           editor.item.id,
@@ -151,8 +165,16 @@ export default function OwnerEditor({
         action,
         editor.kind === "payout" ? "Repasse registrado." : "Alterações salvas.",
       )
-    )
-      onClose();
+    ) {
+      if (editor.kind === "schedule") {
+        onClose();
+      } else onClose();
+    }
+  }
+  async function removeSchedule(schedule: OwnerSchedule) {
+    if (!window.confirm(`Remover a escala de ${weekdayLabel[schedule.weekday]} ${formatMinute(schedule.start_minute)}–${formatMinute(schedule.end_minute)}?`)) return;
+    await run(() => api.deleteSchedule(schedule.id), "Escala removida.");
+    await loadSchedules();
   }
   return (
     <Dialog
@@ -310,6 +332,13 @@ export default function OwnerEditor({
               {editor.kind === "schedule" && (
                 <>
                   <p className="text-sm font-semibold">{editor.item.name}</p>
+                  <div className="space-y-2 rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs font-semibold">Escalas cadastradas</p>
+                    {scheduleLoading && <p role="status" className="text-xs text-muted-foreground">Carregando escalas…</p>}
+                    {!scheduleLoading && !schedules.length && <p className="text-xs text-muted-foreground">Nenhuma escala cadastrada.</p>}
+                    {!scheduleLoading && schedules.map((schedule) => <div key={schedule.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-2 text-xs"><span>{weekdayLabel[schedule.weekday]} · {formatMinute(schedule.start_minute)}–{formatMinute(schedule.end_minute)}</span><span className="flex gap-1"><Button type="button" variant="outline" className="min-h-8 rounded-lg px-2 text-[11px]!" onClick={() => { setEditingSchedule(schedule); setWeekday(String(schedule.weekday)); setStart(formatMinute(schedule.start_minute)); setEnd(formatMinute(schedule.end_minute)); }}>Editar</Button><Button type="button" variant="outline" className="min-h-8 rounded-lg px-2 text-[11px]! text-red-600" disabled={busy} onClick={() => void removeSchedule(schedule)}>Remover</Button></span></div>)}
+                  </div>
+                  <p className="text-xs font-semibold">{editingSchedule ? "Editar escala" : "Adicionar escala"}</p>
                   <OwnerSelect
                     label="Dia da semana"
                     value={weekday}
@@ -413,7 +442,9 @@ export default function OwnerEditor({
                       ? "Confirmar repasse realizado"
                       : editor.kind === "bulk"
                         ? "Confirmar alterações"
-                        : "Salvar"}
+                        : editor.kind === "schedule"
+                          ? editingSchedule ? "Salvar escala" : "Adicionar escala"
+                          : "Salvar"}
                 </Button>
               </div>
             </fieldset>

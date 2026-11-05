@@ -1,11 +1,11 @@
-import { useId, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { CalendarX, Check, ChevronDown, Clock, MessageSquare, Play, Scissors } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { WHATSAPP_URL } from "@/data/barbershopData"
-import { isAppointmentInProgress, money, scheduleTime, shopDate, sortBarberAppointments } from "@/lib/barber-schedule"
+import { canMarkNoShow, canStartAppointment, isAppointmentInProgress, money, scheduleTime, shopDate, sortBarberAppointments } from "@/lib/barber-schedule"
 
 const STATUS = {
   confirmed: { label: "Agendado", className: "bg-blue-50 text-blue-700" },
@@ -16,15 +16,22 @@ const STATUS = {
 }
 
 /** @param {import("./BarberDashboard.types").BarberScheduleProps} props */
-export default function BarberSchedule({ appointments, startedIds, date, barberName, busy, onStart, onComplete, onNoShow, onSaveDetails, loading = false, loadFailed = false }) {
+export default function BarberSchedule({ appointments, startedIds, date, barberName, busy, onStart, onComplete, onNoShow, onSaveDetails, onMarkPaid, loading = false, loadFailed = false }) {
   const id = useId()
   const [confirmNoShow, setConfirmNoShow] = useState(null)
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const sorted = sortBarberAppointments(appointments, startedIds)
   const pending = sorted.filter((item) => item.status === "confirmed")
   const inactive = sorted.filter((item) => item.status === "cancelled" || item.status === "no-show")
   const completed = sorted.filter((item) => item.status === "completed")
   const renderAppointment = (appointment) => {
     const inProgress = isAppointmentInProgress(appointment, startedIds)
+    const canStart = canStartAppointment(appointment, now)
+    const canNoShow = canMarkNoShow(appointment, now)
     const status = STATUS[inProgress ? "started" : appointment.status]
     const digits = appointment.clientPhone?.replace(/\D/g, "")
     const directPhone = digits && (digits.length === 10 || digits.length === 11 ? `55${digits}` : digits)
@@ -37,7 +44,7 @@ export default function BarberSchedule({ appointments, startedIds, date, barberN
               <time dateTime={appointment.startsAt ?? appointment.date} className="rounded-lg bg-gray-100 px-2 py-1 text-xs font-semibold">{scheduleTime(appointment.startsAt ?? appointment.date)}</time>
               <Badge className={`h-auto rounded-full border-0 px-2 py-0.5 text-[11px] font-medium ${status.className}`}>{status.label}</Badge>
             </div>
-            <div className="text-right"><span className="text-xs font-bold text-primary">{money(appointment.amountCents)}</span><p className="mt-0.5 text-[10px] text-gray-400">{appointment.paymentMethod ? `${appointment.paymentMethod} · previsto` : "Pagamento não informado"}</p></div>
+            <div className="text-right"><span className="text-xs font-bold text-primary">{money(appointment.amountCents)}</span><p className={`mt-0.5 text-[10px] ${appointment.paymentStatus === "paid" ? "font-semibold text-emerald-600" : "text-gray-400"}`}>{appointment.paymentMethod ? `${appointment.paymentMethod} · ${appointment.paymentStatus === "paid" ? "recebido" : "pendente"}` : "Pagamento não informado"}</p></div>
           </div>
           <div className="space-y-1">
             <h3 className="break-words text-sm font-semibold">{appointment.clientName}</h3>
@@ -49,11 +56,12 @@ export default function BarberSchedule({ appointments, startedIds, date, barberN
           {confirmNoShow === appointment.id && <div role="group" aria-label="Confirmar falta" className="space-y-2 rounded-xl bg-red-50 p-3 text-xs text-red-700"><p>Registrar que {appointment.clientName} não compareceu?</p><div className="flex gap-2"><Button disabled={busy} variant="outline" className="min-h-10 rounded-lg text-xs!" onClick={() => setConfirmNoShow(null)}>Voltar</Button><Button disabled={busy} variant="destructive" className="min-h-10 rounded-lg text-xs!" onClick={() => { onNoShow(appointment); setConfirmNoShow(null) }}>Registrar falta</Button></div></div>}
           <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-2">
             {appointment.status === "confirmed" && (
-              <Button type="button" disabled={busy} onClick={() => inProgress ? onComplete(appointment) : onStart(appointment)} className={`min-h-10 min-w-0 flex-1 gap-1.5 rounded-xl px-3 py-2 text-xs! font-semibold! whitespace-normal text-white transition-colors ${inProgress ? "bg-emerald-600 hover:bg-emerald-700" : "bg-primary hover:bg-primary/90"}`}>
+              <Button type="button" disabled={busy || (!inProgress && !canStart)} title={!inProgress && !canStart ? "Disponível até 15 minutos antes do horário" : undefined} onClick={() => inProgress ? onComplete(appointment) : onStart(appointment)} className={`min-h-10 min-w-0 flex-1 gap-1.5 rounded-xl px-3 py-2 text-xs! font-semibold! whitespace-normal text-white transition-colors ${inProgress ? "bg-emerald-600 hover:bg-emerald-700" : "bg-primary hover:bg-primary/90"}`}>
                 {inProgress ? <><Check aria-hidden="true" className="size-4" />Concluir Serviço</> : <><Play aria-hidden="true" className="size-3.5" />Iniciar Atendimento</>}
               </Button>
             )}
-            {appointment.status === "confirmed" && !inProgress && <Button disabled={busy} variant="outline" onClick={() => setConfirmNoShow(appointment.id)} className="min-h-10 rounded-xl px-3 text-xs! text-red-600">Falta</Button>}
+            {appointment.status === "confirmed" && !inProgress && <Button disabled={busy || !canNoShow} title={!canNoShow ? "Disponível 10 minutos após o horário" : undefined} variant="outline" onClick={() => setConfirmNoShow(appointment.id)} className="min-h-10 rounded-xl px-3 text-xs! text-red-600">Falta</Button>}
+            {appointment.paymentMethod && appointment.paymentStatus !== "paid" && appointment.status !== "cancelled" && appointment.status !== "no-show" && <Button disabled={busy} variant="outline" onClick={() => void onMarkPaid(appointment)} className="min-h-10 rounded-xl px-3 text-xs! text-emerald-700">Recebido</Button>}
             <Button variant="outline" nativeButton={false} render={<a href={contactUrl} target="_blank" rel="noopener noreferrer" />} aria-label={`${directPhone ? "Falar com" : "Falar com a recepção sobre"} ${appointment.clientName} pelo WhatsApp (nova aba)`} className="min-h-10 gap-1.5 rounded-xl border-gray-200 bg-gray-50 px-3 py-2 text-xs! font-medium! text-gray-600 transition-colors"><MessageSquare aria-hidden="true" className="size-4" />{directPhone ? "WhatsApp" : "Recepção"}</Button>
           </div>
         </CardContent>

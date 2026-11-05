@@ -20,6 +20,8 @@ export interface CommissionRule {
 }
 export interface OwnerSummary {
   revenue_cents: number;
+  received_cents: number;
+  pending_payment_cents: number;
   total_count: number;
   completed_count: number;
   no_show_count: number;
@@ -36,6 +38,14 @@ export interface OwnerSummary {
     amount_cents: number;
     created_at: string;
   }[];
+}
+export interface OwnerSchedule {
+  id: string;
+  barber_user_id: string;
+  weekday: number;
+  start_minute: number;
+  end_minute: number;
+  active: boolean;
 }
 export function ownerRange(date: string, period: "day" | "month") {
   const from = new Date(

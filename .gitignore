@@ -12,3 +12,6 @@ portable/release/
 # Arquivos temporários do SQLite em execução.
 *.db-wal
 *.db-shm
+
+# Relatórios e capturas locais de revisão visual.
+.taste-skill/

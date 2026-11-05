@@ -6,10 +6,17 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { siteConfig } from "@/config/siteConfig"
+import { BARBERSHOP_INFO, FULL_ADDRESS, WHATSAPP_URL } from "@/data/barbershopData"
 import { splitAppointments } from "@/lib/client-appointments"
 import { clientError } from "@/lib/client-api"
 function appointmentDate(appointment) {
   return `${new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${appointment.date}T12:00:00Z`))} às ${appointment.time}`
+}
+
+function whatsappAppointmentUrl(appointment) {
+  const barberName = appointment.barber.isAny ? "Qualquer disponível" : appointment.barber.name
+  const message = `Olá! Gostaria de confirmar meu agendamento na ${BARBERSHOP_INFO.name}:\nServiço: ${appointment.service.title}\nProfissional: ${barberName}\nData: ${appointmentDate(appointment)} (Brasília)\nLocal: ${FULL_ADDRESS}`
+  return `${WHATSAPP_URL}?text=${encodeURIComponent(message)}`
 }
 
 /** @param {import("./MyAppointments.types").MyAppointmentsProps} props */
@@ -94,8 +101,9 @@ export default function MyAppointments({
                     <h2 className="break-words font-semibold">{appointment.service.title}</h2>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"><span className="flex items-center gap-1.5"><Clock aria-hidden="true" className="size-4" />{appointment.service.duration}</span><span className="font-bold text-primary">{appointment.service.price}</span></div>
                   </div>
-                  <p className="flex items-start gap-2 rounded-2xl bg-blue-50/70 p-3 text-xs leading-relaxed text-accent-foreground"><MessageSquare aria-hidden="true" className="size-4 shrink-0" />{isDemo ? "Demonstração de lembrete via WhatsApp" : appointment.whatsappReminderEnabled ? "Lembrete automático ativado via WhatsApp" : "Lembrete via WhatsApp não ativado"}</p>
+                  <p className="flex items-start gap-2 rounded-2xl bg-blue-50/70 p-3 text-xs leading-relaxed text-accent-foreground"><MessageSquare aria-hidden="true" className="size-4 shrink-0" />{isDemo ? "Demonstração de lembrete via WhatsApp" : "Envie os detalhes para a recepção e confirme seu horário pelo WhatsApp."}</p>
                   <div className="flex flex-wrap gap-2">
+                    {!isDemo && <Button variant="outline" nativeButton={false} render={<a href={whatsappAppointmentUrl(appointment)} target="_blank" rel="noopener noreferrer" />} disabled={busy} className="min-h-11 gap-2 rounded-full px-4 transition-colors"><MessageSquare aria-hidden="true" className="size-4" />Enviar detalhes no WhatsApp<span className="sr-only"> (abre em nova aba)</span></Button>}
                     <Button type="button" variant="ghost" disabled={busy} onClick={() => setCancelId(appointment.id)} className="min-h-11 rounded-full px-4 text-muted-foreground transition-colors">Cancelar</Button>
                     <Button type="button" variant="outline" disabled={busy} onClick={() => onReschedule ? onReschedule(appointment) : newBooking()} className="min-h-11 rounded-full px-4 transition-colors">Remarcar</Button>
                     <Button variant="default" nativeButton={false} render={<a href={siteConfig.address.mapsUrl} target="_blank" rel="noopener noreferrer" />} className="min-h-11 gap-2 rounded-full bg-primary px-4 text-primary-foreground transition-colors"><MapPin aria-hidden="true" className="size-4" />Ver Endereço<span className="sr-only"> (abre o mapa em nova aba)</span></Button>

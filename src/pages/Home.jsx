@@ -24,6 +24,7 @@ export default function Home({
 
   const [selectedCategory, setSelectedCategory] = useState("Todos")
   const [searchQuery, setSearchQuery] = useState("")
+  const [selectionNotice, setSelectionNotice] = useState("")
 
   const services = catalogServices
   const categories = ["Todos", ...new Set(services.map((service) => service.category))]
@@ -45,7 +46,7 @@ export default function Home({
     if (onSelectService) {
       onSelectService(service)
     } else {
-      alert(`Iniciando agendamento para: ${service.name}!`)
+      setSelectionNotice(`Serviço selecionado: ${service.name}.`)
     }
   }
 
@@ -106,15 +107,16 @@ export default function Home({
             <h3 className="text-sm md:text-base font-bold text-foreground">
               Catálogo de Serviços
             </h3>
-            <span
+            <button
+              type="button"
               onClick={() => {
                 setSelectedCategory("Todos")
                 setSearchQuery("")
               }}
-              className="text-xs text-[#0099FF] font-semibold cursor-pointer hover:underline"
+              className="rounded-sm text-xs font-semibold text-[#0099FF] hover:underline focus-visible:outline-2 focus-visible:outline-primary"
             >
               Ver todos ({services.length})
-            </span>
+            </button>
           </div>
 
           {/* Lista de serviços com títulos completos e itens dos combos */}
@@ -150,6 +152,7 @@ export default function Home({
             </div>
           )}
         </section>
+        {selectionNotice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-center text-xs text-blue-800">{selectionNotice}</p>}
 
         <footer aria-label="Informações da Na Barbearia" className="mt-12 space-y-4 border-t border-border/60 px-4 pt-8 pb-6 text-center text-muted-foreground">
           <div className="space-y-2">

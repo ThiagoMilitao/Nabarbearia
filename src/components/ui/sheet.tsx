@@ -12,7 +12,7 @@ function SheetTrigger(props: SheetPrimitive.Trigger.Props) {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
 }
 
-function SheetContent({ className, children, side = "right", ...props }: Omit<SheetPrimitive.Popup.Props, "className"> & { className?: string; side?: "right" }) {
+function SheetContent({ className, children, side = "right", closeLabel = "Fechar notificações", ...props }: Omit<SheetPrimitive.Popup.Props, "className"> & { className?: string; side?: "right"; closeLabel?: string }) {
   return (
     <SheetPrimitive.Portal>
       <SheetPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/30 transition-opacity duration-200 ease-(--ease-drawer) data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none" />
@@ -23,7 +23,7 @@ function SheetContent({ className, children, side = "right", ...props }: Omit<Sh
         {...props}
       >
         {children}
-        <SheetPrimitive.Close render={<Button type="button" variant="ghost" size="icon" />} aria-label="Fechar notificações" className="absolute top-4 right-4 size-11 rounded-full transition-colors">
+        <SheetPrimitive.Close render={<Button type="button" variant="ghost" size="icon" />} aria-label={closeLabel} className="absolute top-4 right-4 size-11 rounded-full transition-colors">
           <X aria-hidden="true" className="size-5" />
         </SheetPrimitive.Close>
       </SheetPrimitive.Popup>

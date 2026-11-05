@@ -40,6 +40,8 @@ export interface Appointment {
   source?: 'api'
   clientPhone?: string
   paymentMethod?: string
+  paymentStatus?: 'pending' | 'paid'
+  paidAt?: string
   clientNote?: string
   executionStarted?: boolean
   commissionCents?: number

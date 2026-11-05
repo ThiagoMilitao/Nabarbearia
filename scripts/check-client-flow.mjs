@@ -52,7 +52,7 @@ try {
   const owner = { cookie: setup.cookie, csrf: setup.body.csrf_token }
   const service = (await request('/admin/services', { name: '(COMBO 2) Corte + Barba', description: 'Corte de cabelo + barba com toalha quente.', category: 'COMBOS', price_cents: 9000, duration_minutes: 60, active: true }, owner)).body
   const barber = (await request('/admin/barbers', { display_name: 'Sorriso', email: 'barber@client-flow.test', password }, owner)).body
-  for (let weekday = 1; weekday <= 6; weekday++) await request('/admin/schedules', { barber_user_id: barber.id, weekday, start_minute: 600, end_minute: 1200 }, owner)
+  for (let weekday = 0; weekday <= 6; weekday++) await request('/admin/schedules', { barber_user_id: barber.id, weekday, start_minute: 0, end_minute: 1440 }, owner)
   await request('/auth/register', { email: 'client@client-flow.test', password, display_name: 'Cliente Integração' })
 
   launch(process.env.CHROME_BIN ?? 'google-chrome', ['--headless', '--no-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--remote-debugging-port=9224', `--user-data-dir=${join(temp, 'chrome')}`, 'about:blank'])
@@ -86,9 +86,35 @@ try {
   const clickSelector = async (selector) => { await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), selector); await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`) }
   const navigate = async (path) => { await send('Page.navigate', { url: `${origin}${path}` }) }
   const appointments = () => evaluate("fetch('/api/v1/appointments').then(r=>r.json())")
+  const requestStatus = async (path, data, auth) => {
+    const response = await fetch(`${origin}/api/v1${path}`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: auth.cookie, 'X-CSRF-Token': auth.csrf }, body: JSON.stringify(data) })
+    return response.status
+  }
   const fill = (selector, value) => evaluate(`(() => { const input = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await send('Page.enable'); await send('Runtime.enable')
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await navigate('/')
+  await waitText('Seu estilo,')
+  await until(() => evaluate("Boolean(document.querySelector('.landing-service a[href*=service]'))"), 'catálogo público conectado')
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true)
+  await clickSelector('button[aria-label="Abrir menu"]')
+  await until(() => evaluate("Boolean(document.querySelector('[data-slot=sheet-content]'))"), 'menu móvel')
+  await clickSelector('button[aria-label="Fechar menu"]')
+  await clickSelector('.landing-service a')
+  await waitText('Selecionar Profissional')
+  assert.equal(await evaluate('location.pathname'), '/servico')
+  assert((await text()).includes('(COMBO 2) Corte + Barba'))
+  await navigate('/')
+  await until(() => evaluate("Boolean(document.querySelector('.landing-team-card a[href*=barber]'))"), 'equipe pública conectada')
+  await clickSelector('.landing-team-card a')
+  await waitText('Catálogo de Serviços')
+  await until(() => evaluate("Boolean([...document.querySelectorAll('button')].find(b => b.textContent.includes('Selecionar')))"), 'serviço da Home')
+  await evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Selecionar')).click()")
+  await waitText('Selecionar Profissional')
+  assert.equal(await evaluate("new URLSearchParams(location.search).has('barber')"), false)
+  assert.equal(await evaluate("document.querySelector('footer [role=status]').innerText.includes('Sorriso')"), true)
+  console.log('OK: landing móvel, menu e encaminhamento de serviço/profissional para reserva real.')
+
   await navigate('/painel')
   await waitText('Bem-vindo de volta!')
   await fill('input[name="email"]', 'client@client-flow.test'); await fill('input[name="password"]', password)
@@ -132,6 +158,11 @@ try {
   list = await appointments(); assert.equal(list.length, 1); assert.equal(list[0].id, first.id); assert.notEqual(list[0].starts_at, first.starts_at)
   console.log('OK: remarcação altera o mesmo agendamento.')
 
+  assert.equal(await requestStatus(`/appointments/${first.id}/start`, {}, owner), 409)
+  const operationalStart = new Date()
+  operationalStart.setSeconds(0, 0)
+  operationalStart.setTime(operationalStart.getTime() + 5 * 60_000)
+  await request('/admin/agenda/bulk', { action: 'move', changes: [{ id: first.id, starts_at: operationalStart.toISOString() }] }, owner)
   await request(`/appointments/${first.id}/start`, {}, owner)
   await request(`/appointments/${first.id}/complete`, { notes: '' }, owner)
   await navigate('/meus-agendamentos'); await waitText('Meus Agendamentos'); await click('Histórico')
@@ -160,8 +191,14 @@ try {
   await navigate('/barbeiro'); await waitText('Bem-vindo de volta!')
   await fill('input[name="email"]', 'barber@client-flow.test'); await fill('input[name="password"]', password)
   await click('Entrar'); await waitText('Olá, Sorriso!')
-  const dayLabel = `${new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'short' }).format(day).replace('.', '').toUpperCase()} ${day.getUTCDate()}`
-  await click(dayLabel); await waitText('Agenda do Dia')
+  const todayDate = new Date(`${today}T12:00:00-03:00`)
+  const todayLabel = `HOJE ${todayDate.getUTCDate()}`
+  await click(todayLabel); await until(() => evaluate("(document.body.innerText.includes('Agenda de Hoje') || document.body.innerText.includes('Agenda do Dia'))"), 'agenda do barbeiro')
+  const localTime = (offsetMinutes = 0) => new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + offsetMinutes * 60_000))
+  const nowTime = localTime()
+  const noShowTime = localTime(-11)
+  const pauseTime = localTime(30)
+  const pauseEndTime = localTime(90)
   const formField = async (label, value, select = false) => evaluate(`(() => {
     const label = [...document.querySelectorAll('label')].find(el => el.firstChild?.textContent.trim() === ${JSON.stringify(label)});
     const input = label.querySelector(${JSON.stringify(select ? 'select' : 'input')});
@@ -179,7 +216,7 @@ try {
     await click('Adicionar à agenda'); await waitText('Cliente presencial incluído na agenda.')
     await waitText(name)
   }
-  await walkIn('Presencial Teste', '10:00')
+  await walkIn('Presencial Teste', nowTime)
   let professionalList = await appointments()
   const walkin = professionalList.find(item => item.client_display_name === 'Presencial Teste')
   assert(walkin); assert.equal(walkin.payment_method, 'Pix'); assert.equal(walkin.client_phone, '13999998888')
@@ -191,6 +228,8 @@ try {
   await formField('Observações', 'Navalhado leve')
   await click('Salvar detalhes'); await waitText('Detalhes atualizados.')
   assert.equal((await appointments()).find(item => item.id === walkin.id).client_note, 'Navalhado leve')
+  await click('Recebido'); await waitText('Pagamento marcado como recebido.')
+  assert.equal((await appointments()).find(item => item.id === walkin.id).payment_status, 'paid')
   await click('Iniciar Atendimento'); await waitText('Em Atendimento')
   assert.equal(await evaluate("document.querySelector('section[aria-labelledby] > [data-slot=card]')?.textContent.includes('Em Atendimento')"), true)
   assert.equal(await evaluate(`(() => {
@@ -200,7 +239,7 @@ try {
     return hero.getBoundingClientRect().top < 400 && dates.getBoundingClientRect().bottom <= hero.getBoundingClientRect().top && action.getBoundingClientRect().bottom <= document.querySelector('[aria-label="Navegação do barbeiro"]').getBoundingClientRect().top;
   })()`), true)
   writeFileSync(join(temp, 'barber-active.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
-  await send('Page.reload'); await waitText('Olá, Sorriso!'); await click(dayLabel); await waitText('Em Atendimento')
+  await send('Page.reload'); await waitText('Olá, Sorriso!'); await click(todayLabel); await waitText('Em Atendimento')
   await click('Concluir Serviço'); await waitText('Serviço concluído com sucesso.')
   assert.equal((await appointments()).find(item => item.id === walkin.id).status, 'completed')
   assert.equal((await appointments()).find(item => item.id === walkin.id).commission_cents, 4500)
@@ -209,27 +248,28 @@ try {
   await click('Meus Ganhos'); await waitText('Meus Ganhos & Métricas'); await waitText('R$ 90,00')
   assert.equal(await evaluate(`document.querySelector('[aria-label="Consultar data"]') === null`), true)
   await click('Perfil'); await waitText('Meu Perfil'); await waitText('barber@client-flow.test')
-  await click('Agenda'); await waitText('Agenda do Dia')
+  await click('Agenda'); await until(() => evaluate("(document.body.innerText.includes('Agenda de Hoje') || document.body.innerText.includes('Agenda do Dia'))"), 'agenda após ganhos')
   assert(!(await text()).includes('Sua comissão'))
   assert(!(await text()).includes('sem regra de comissão'))
   assert.equal(await evaluate(`[...document.querySelectorAll('details')].find(el => el.querySelector('summary').textContent.includes('Atendimentos Concluídos'))?.open`), false)
   await evaluate(`[...document.querySelectorAll('summary')].find(el => el.textContent.includes('Atendimentos Concluídos')).click()`)
   await waitText('Obs: Navalhado leve')
   await evaluate(`[...document.querySelectorAll('summary')].find(el => el.textContent.includes('Atendimentos Concluídos')).click()`)
-  await walkIn('Falta Teste', '11:00'); await click('Falta'); await click('Registrar falta'); await waitText('Falta registrada.')
+  await walkIn('Falta Teste', noShowTime); await click('Falta'); await click('Registrar falta'); await waitText('Falta registrada.')
   assert.equal((await appointments()).find(item => item.client_display_name === 'Falta Teste').status, 'no_show')
-  await click('Almoço (1h)'); await formField('Horário de início · Brasília', '12:00'); await click('Confirmar pausa')
-  await waitText('Pausa bloqueada na agenda.'); await waitText('Almoço · 12:00–13:00')
-  const selectedDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(day)
+  await click('Almoço (1h)'); await formField('Horário de início · Brasília', pauseTime); await click('Confirmar pausa')
+  await waitText('Pausa bloqueada na agenda.'); await waitText(`Almoço · ${pauseTime}–${pauseEndTime}`)
+  const selectedDate = today
   const slots = (await request(`/public/availability?${new URLSearchParams({ date: selectedDate, service_id: service.id, barber_id: barber.id })}`)).body
   assert(!slots.some(slot => slot.starts_at === `${selectedDate}T15:00:00Z`))
-  await send('Page.reload'); await waitText('Olá, Sorriso!'); await click(dayLabel); await waitText('Almoço · 12:00–13:00')
+  await send('Page.reload'); await waitText('Olá, Sorriso!'); await click(todayLabel); await waitText(`Almoço · ${pauseTime}–${pauseEndTime}`)
   writeFileSync(join(temp, 'barber.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
   const barberLogin = await request('/auth/login', { email: 'barber@client-flow.test', password })
   const barberAuth = { cookie: barberLogin.cookie, csrf: barberLogin.body.csrf_token }
   const clientLogin = await request('/auth/login', { email: 'client@client-flow.test', password })
   const clientAuth = { cookie: clientLogin.cookie, csrf: clientLogin.body.csrf_token }
-  const blockBody = { barber_user_id: barber.id, starts_at_utc: `${selectedDate}T17:00:00Z`, ends_at_utc: `${selectedDate}T17:15:00Z`, reason: 'Pausa' }
+  const pauseStart = new Date(`${selectedDate}T${pauseTime}:00-03:00`)
+  const blockBody = { barber_user_id: barber.id, starts_at_utc: pauseStart.toISOString(), ends_at_utc: new Date(pauseStart.getTime() + 15 * 60_000).toISOString(), reason: 'Pausa' }
   async function mutationStatus(path, body, auth, method = 'POST') {
     const response = await fetch(`${origin}/api/v1${path}`, { method, headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: auth.cookie, 'X-CSRF-Token': auth.csrf }, body: JSON.stringify(body) })
     return response.status
@@ -237,7 +277,7 @@ try {
   assert.equal(await mutationStatus('/barber/blocks', blockBody, clientAuth), 403)
   assert.equal(await mutationStatus('/barber/blocks', { ...blockBody, barber_user_id: setup.body.user.id }, barberAuth), 403)
   assert.equal(await mutationStatus(`/appointments/${walkin.id}/details`, { client_note: 'Sem permissão' }, clientAuth, 'PATCH'), 403)
-  assert.equal(await mutationStatus('/barber/blocks', { ...blockBody, starts_at_utc: `${selectedDate}T15:00:00Z`, ends_at_utc: `${selectedDate}T15:15:00Z` }, barberAuth), 409)
+  assert.equal(await mutationStatus('/barber/blocks', blockBody, barberAuth), 409)
   const clientAppointments = (await request('/appointments', null, clientAuth)).body
   assert(clientAppointments.every(item => item.commission_cents == null))
   console.log('OK: cliente não pode alterar detalhes/bloquear agendas; barbeiro não bloqueia outro profissional; sobreposição é rejeitada.')
